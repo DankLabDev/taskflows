@@ -1,0 +1,11 @@
+[Unit]
+Description=Timer for task {{task_name}}.
+
+[Timer]
+{% for k, v in timers %}
+{{k}}={{v}}
+{% endfor %}
+Persistent=true
+
+[Install]
+WantedBy=timers.target

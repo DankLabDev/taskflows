@@ -1,0 +1,34 @@
+[tool.poetry]
+name = "task-flows"
+version = "0.3.0"
+description = "Python task management, scheduling, alerts."
+authors = ["Dan <kelleherjdan@gmail.com>"]
+
+[tool.poetry.dependencies]
+python = "^3.8.1"
+sqlalchemy = "^2.0.9"
+docker = "^5.0.3"
+tqdm = "^4.64.0"
+click = "^8.1.3"
+psycopg = { extras = ["c"], version = "^3.1.4" }
+python-dotenv = "^0.21.0"
+xxhash = "^3.2.0"
+paramiko = "^3.1.0"
+rich = "^13.3.5"
+python-dateutil = "^2.8.2"
+jinja2 = "^3.1.2"
+dynamic-imports = "^1.0.0"
+alert-msgs = "^0.1.2"
+ezloggers = "^1.1.0"
+
+[tool.poetry.dev-dependencies]
+pytest = "^7.1.2"
+black = "^22.3.0"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+taskflows = 'task_flows.admin:cli'
+_task_flows_call = 'task_flows.docker:_task_flows_call'
