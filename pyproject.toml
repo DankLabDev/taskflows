@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "task-flows"
-version = "0.3.1"
+version = "0.3.2"
 description = "Python task management, scheduling, alerts."
 authors = ["Dan <kelleherjdan@gmail.com>"]
 
@@ -18,7 +18,7 @@ rich = "^13.3.5"
 python-dateutil = "^2.8.2"
 jinja2 = "^3.1.2"
 dynamic-imports = "^1.0.0"
-alert-msgs = "^0.1.2"
+alert-msgs = "^0.2.0"
 ezloggers = "^1.1.0"
 
 [tool.poetry.dev-dependencies]
