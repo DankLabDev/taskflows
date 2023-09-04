@@ -1,15 +1,14 @@
 import os
-from functools import cache
+from functools import lru_cache
 
 import sqlalchemy as sa
 from sqlalchemy.engine import Engine
-
 from task_flows.utils import logger
 
 from .tables import SCHEMA_NAME, task_errors_table, task_runs_table
 
 
-@cache
+@lru_cache
 def engine_from_env() -> Engine:
     """Create an SQLAlchemy engine and cache it so we only create it once.
     The open connections can be closed by: engine_from_env().dispose()
@@ -20,7 +19,7 @@ def engine_from_env() -> Engine:
     return sa.create_engine(os.environ["TASK_FLOWS_DB"])
 
 
-@cache
+@lru_cache
 def create_missing_tables():
     """Create any tables that do not currently exist in the database."""
     with engine_from_env().begin() as conn:

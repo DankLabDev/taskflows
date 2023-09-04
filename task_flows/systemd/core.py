@@ -4,40 +4,42 @@ from pathlib import Path
 from subprocess import run
 from typing import Literal, Sequence, Set, Union
 
-from jinja2 import Environment, FileSystemLoader
-
 from task_flows.utils import _FILE_PREFIX, logger
 
 from .models import Timer
+from .templates import load_template
 
 systemd_dir = Path.home().joinpath(".config", "systemd", "user")
 
 
-def run_task(name: str):
+def run_task(task_name: str):
     """Run a task.
 
     Args:
-        name (str): Name of task to run.
+        task_name (str): Name of task to run.
     """
-    _task_cmd(name, "start")
+    logger.info("Running task %s", task_name)
+    _task_cmd(task_name, "start")
 
 
-def stop_task(name: str):
+def stop_task(task_name: str):
     """Stop a running task.
 
     Args:
-        name (str): Name of task to stop.
+        task_name (str): Name of task to stop.
     """
-    _task_cmd(name, "stop")
+    logger.info("Stopping task %s", task_name)
+    _task_cmd(task_name, "stop")
 
 
-def restart_task(name: str):
+def restart_task(task_name: str):
     """Restart a running task.
 
     Args:
-        name (str): Name of task to restart.
+        task_name (str): Name of task to restart.
     """
-    _task_cmd(name, "restart")
+    logger.info("Restarting task %s", task_name)
+    _task_cmd(task_name, "restart")
 
 
 def create_scheduled_task(
@@ -48,9 +50,7 @@ def create_scheduled_task(
     Args:
         task_name (str): Name of task service should be created for.
     """
-    environment = Environment(
-        loader=FileSystemLoader(Path(__file__).parent / "templates")
-    )
+    logger.info("Creating scheduled task %s (%s)", task_name, timers)
 
     if isinstance(timers, Timer):
         timers = [timers]
@@ -58,63 +58,63 @@ def create_scheduled_task(
     stem = f"{_FILE_PREFIX}{task_name}"
 
     systemd_dir.joinpath(f"{stem}.timer").write_text(
-        environment.get_template("timer.jinja2").render(
+        load_template("timer").render(
             task_name=task_name,
             timers=[(t.__class__.__name__, t.value) for t in timers],
         )
     )
-    logger.info("Installed Systemd timer for %s.", task_name)
-
     # TODO systemd-escape command
     # TODO arg for systemd After=
     systemd_dir.joinpath(f"{stem}.service").write_text(
-        environment.get_template("service.jinja2").render(
+        load_template("service").render(
             task_name=task_name, path=os.environ["PATH"], command=command
         )
     )
-    logger.info("Installed Systemd service for %s.", task_name)
-    user_systemctl("enable", "--now", f"{stem}.timer")
+    enable_scheduled_task(task_name)
 
 
 def disable_scheduled_task(task_name: Path):
     """Disable a task's services and timers."""
     srvs = {f.stem for f in systemd_dir.glob(f"{_FILE_PREFIX}{task_name}*")}
     for srv in srvs:
-        user_systemctl("disable", "--now", srv)
-        logger.debug("Disabled unit: %s", srv)
+        _user_systemctl("disable", "--now", srv)
+        logger.info("Stopped and disabled unit: %s", srv)
     # remove any failed status caused by stopping service.
-    user_systemctl("reset-failed")
+    _user_systemctl("reset-failed")
 
 
 def enable_scheduled_task(task_name: str):
     """Enable a task's services and timers."""
-    user_systemctl("enable", "--now", f"{_FILE_PREFIX}{task_name}.timer")
+    logger.info("Enabling scheduled task %s", task_name)
+    _user_systemctl("enable", "--now", f"{_FILE_PREFIX}{task_name}.timer")
 
 
 def remove_scheduled_task(task_name: Path):
-    """Complete remove a task's services and timers."""
+    """Completely remove a task's services and timers."""
+    logger.info("Removing scheduled task %s", task_name)
     disable_scheduled_task(task_name)
     files = list(systemd_dir.glob(f"{_FILE_PREFIX}{task_name}*"))
     srvs = {f.stem for f in files}
     for srv in srvs:
-        user_systemctl("clean", srv)
+        logger.info("Cleaning cache and runtime directories: %s.", srv)
+        _user_systemctl("clean", srv)
     for file in files:
-        logger.debug("Removing %s", file)
+        logger.info("Deleting %s", file)
         file.unlink()
 
 
-def user_systemctl(*args):
+def _user_systemctl(*args):
     """Run a systemd command as current user."""
-    run(["systemctl", "--user", *args])
+    return run(["systemctl", "--user", *args], capture_output=True)
 
 
-def names_from_files(
+def _names_from_files(
     name_type: Literal["task", "unit"], include_stop_tasks: bool = True
 ) -> Set[str]:
     """Parse task systemd file stems."""
     names = [
         m
-        for f in systemd_dir.glob("{_FILE_PREFIX}*")
+        for f in systemd_dir.glob(f"{_FILE_PREFIX}*")
         if (m := re.match(_FILE_PREFIX + r"([\w-]+$)", f.stem))
     ]
     if name_type == "task":
@@ -126,7 +126,7 @@ def names_from_files(
     return names
 
 
-def _task_cmd(name: str, command: str):
-    if not name.startswith(_FILE_PREFIX):
-        name = f"{_FILE_PREFIX}{name}"
-    user_systemctl(command, name)
+def _task_cmd(task_name: str, command: str):
+    if not task_name.startswith(_FILE_PREFIX):
+        task_name = f"{_FILE_PREFIX}{task_name}"
+    _user_systemctl(command, task_name)

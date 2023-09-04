@@ -5,10 +5,11 @@ from typing import Callable, Dict, List, Optional
 
 import click
 from dynamic_imports import import_module_attr
-from ezloggers import get_logger
 from paramiko import AutoAddPolicy, SSHClient
 
-logger = get_logger("task-flows")
+from ezloggers import get_logger
+
+logger = get_logger("task-flows", stdout=True)
 
 _FILE_PREFIX = "task_flow_"
 

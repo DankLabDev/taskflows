@@ -14,16 +14,16 @@ from rich.console import Console, Group
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
-
-from task_flows.systemd import remove_scheduled_task
+from tqdm import tqdm
 
 from .database import engine_from_env
 from .database.tables import task_runs_table
 from .schedule import ScheduledTask
-from .systemd import (
+from .systemd.core import (
+    _names_from_files,
     disable_scheduled_task,
     enable_scheduled_task,
-    names_from_files,
+    remove_scheduled_task,
     restart_task,
     run_task,
     stop_task,
@@ -69,7 +69,7 @@ def task_runs_history(
     return tasks_hist
 
 
-def task_runs_history_table(*args, **kwargs) -> Dict[str, Table]:
+def task_runs_history_tables(*args, **kwargs) -> Dict[str, Table]:
     """Get task run history for console display.
 
     Returns:
@@ -154,7 +154,7 @@ def tasks_status(match: Optional[str] = None) -> Dict[str, Dict[str, str]]:
 )
 def show(match: Optional[str] = None, history: Optional[int] = None):
     """Show task status and history."""
-    history = task_runs_history(history, match)
+    history = task_runs_history_tables(history, match)
     status = tasks_status(match)
     task_names = {*history.keys(), *status.keys()}
     panels = []
@@ -278,7 +278,7 @@ def restart(task_name: str):
 )
 def enable(task_names: Optional[Tuple[str]] = None):
     """Reenable a currently disabled scheduled task."""
-    for task_name in task_names:
+    for task_name in tqdm(task_names):
         enable_scheduled_task(task_name)
     click.echo(click.style("Done!", fg="green"))
 
@@ -289,7 +289,7 @@ def enable(task_names: Optional[Tuple[str]] = None):
 )
 def disable(task_names: Optional[Tuple[str]] = None):
     """Disable a scheduled task."""
-    for task_name in task_names:
+    for task_name in tqdm(task_names):
         disable_scheduled_task(task_name)
     click.echo(click.style("Done!", fg="green"))
 
@@ -302,8 +302,12 @@ def remove(
     task_names: Optional[Tuple[str]] = None,
 ):
     """Disable task(s) and remove any Systemd and Docker artifacts."""
-    task_names = task_names or names_from_files("task")
-    for task_name in task_names:
+    task_names = task_names or _names_from_files("task")
+    if not task_names:
+        click.echo(click.style("No tasks to remove!", fg="yellow"))
+        return
+    for task_name in tqdm(task_names):
+        # click.echo(click.style(f"Removing scheduled task {task_name}", fg="cyan"))
         remove_scheduled_task(task_name)
         # TODO remove docker artifacts
     click.echo(click.style("Done!", fg="green"))
