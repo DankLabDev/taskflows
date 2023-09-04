@@ -3,9 +3,8 @@ from uuid import uuid4
 
 import pytest
 import sqlalchemy as sa
-
 from task_flows.database.tables import task_errors_table, task_runs_table
-from task_flows.task import TaskLogger
+from task_flows.tasks.logger import TaskLogger
 
 
 @pytest.fixture
@@ -13,8 +12,6 @@ def task():
     return TaskLogger(
         name=str(uuid4()),
         required=False,
-        alert_events=None,
-        alert_types=None,
         exit_on_complete=False,
     )
 
