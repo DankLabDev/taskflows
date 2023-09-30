@@ -3,8 +3,9 @@ import inspect
 import os
 from functools import partial
 from logging import Logger
-from threading import Timer
 from typing import Callable, Literal, Optional, Sequence
+
+from func_timeout import func_timeout
 
 from task_flows.utils import logger as default_logger
 
@@ -82,13 +83,8 @@ def _task_wrapper(
     for i in range(retries + 1):
         try:
             if timeout:
-                timer = Timer(
-                    timeout,
-                    lambda: TimeoutError(f"Timeout executing task {task_logger.name}"),
-                )
-                timer.start()
-                result = func(**kwargs)
-                timer.cancel()
+                # throws FunctionTimedOut if timeout is exceeded.
+                result = func_timeout(timeout, func, kwargs=kwargs)
             else:
                 result = func(**kwargs)
             task_logger.record_task_finish(success=True, retries=i, return_value=result)
