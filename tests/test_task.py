@@ -16,8 +16,8 @@ def task():
     )
 
 
-def test_record_task_start(task, tables):
-    task.record_task_start()
+def test_on_task_start(task, tables):
+    task.on_task_start()
     query = sa.select(task_runs_table.c.task_name, task_runs_table.c.started).where(
         task_runs_table.c.task_name == task.name
     )
@@ -28,9 +28,9 @@ def test_record_task_start(task, tables):
     assert all(v is not None for v in tasks[0])
 
 
-def test_record_task_error(task, tables):
+def test_on_task_error(task, tables):
     error = Exception(str(uuid4()))
-    task.record_task_error(error)
+    task.on_task_error(error)
     query = sa.select(task_errors_table).where(
         task_errors_table.c.task_name == task.name
     )
@@ -41,9 +41,9 @@ def test_record_task_error(task, tables):
     assert all(v is not None for v in errors[0])
 
 
-def test_record_task_finish(task, tables):
-    task.record_task_start()
-    task.record_task_finish(
+def test_on_task_finish(task, tables):
+    task.on_task_start()
+    task.on_task_finish(
         success=random.choice([True, False]),
         retries=random.randint(0, 5),
         return_value=str(uuid4()),

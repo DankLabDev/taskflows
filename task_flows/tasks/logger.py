@@ -1,13 +1,13 @@
 import sys
 from datetime import datetime
-from functools import partial
-from typing import Any, Literal, Optional, Sequence
+from typing import Any, Literal, Optional, Sequence, List
 
 import sqlalchemy as sa
-from alert_msgs import ContentType, FontSize, Map, Text, send_alert
+from alert_msgs import ContentType, FontSize, Map, Text, send_alert, SendCfg
 
 from task_flows.database.core import create_missing_tables, engine_from_env
 from task_flows.database.tables import task_errors_table, task_runs_table
+from task_flows.utils import Alerts
 
 
 class TaskLogger:
@@ -20,24 +20,18 @@ class TaskLogger:
         name: str,
         required: bool,
         exit_on_complete: bool,
-        alert_methods: Optional[Sequence[Literal["slack", "email"]]] = None,
-        alert_events: Optional[Sequence[Literal["start", "error", "finish"]]] = None,
+        alerts: Optional[Sequence[Alerts]] = None,
     ):
         self.name = name
         self.required = required
         self.exit_on_complete = exit_on_complete
-        self.alert_events = alert_events or []
-
-        if self.alert_events:
-            if not alert_methods:
-                raise ValueError(
-                    f"Can not send alerts for {self.alert_events} unless `alert_methods` is provided."
-                )
-            self._send_alerts = partial(send_alert, methods=alert_methods)
+        self.alerts = alerts or []
+        if isinstance(self.alerts, Alerts):
+            self.alerts = [self.alerts]
         self.engine = engine_from_env()
         self.errors = []
 
-    def record_task_start(self):
+    def on_task_start(self):
         self.start_time = datetime.utcnow()
         with self.engine.begin() as conn:
             conn.execute(
@@ -45,10 +39,18 @@ class TaskLogger:
                     {"task_name": self.name, "started": self.start_time}
                 )
             )
-        if "start" in self.alert_events:
-            self._alert_task_start()
+        if send_to := self._event_alerts("start"):
+            msg = f"Started task {self.name} {self.start_time.strftime('%Y-%m-%d %H:%M:%S')}"
+            components = [
+                Text(
+                    msg,
+                    font_size=FontSize.LARGE,
+                    content_type=ContentType.IMPORTANT,
+                )
+            ]
+            send_alert(components=components, send_to=send_to)
 
-    def record_task_error(self, error: Exception):
+    def on_task_error(self, error: Exception):
         self.errors.append(error)
         with self.engine.begin() as conn:
             statement = sa.insert(task_errors_table).values(
@@ -59,20 +61,25 @@ class TaskLogger:
                 }
             )
             conn.execute(statement)
-        if "error" in self.alert_events:
-            self._alert_task_error(error)
+        if send_to := self._event_alerts("error"):
+            subject = f"Error executing task {self.name}: {type(error)}"
+            components = [
+                Text(
+                    f"{subject} -- {error}",
+                    font_size=FontSize.LARGE,
+                    content_type=ContentType.ERROR,
+                )
+            ]
+            send_alert(components=components, send_to=send_to)
 
-    def record_task_finish(
+    def on_task_finish(
         self,
         success: bool,
         return_value: Any = None,
         retries: int = 0,
     ) -> datetime:
-        self.finish_time = datetime.utcnow()
-        self.success = success
-        self.return_value = return_value
-        self.retries = retries
-        self.status = "success" if success else "failed"
+        finish_time = datetime.utcnow()
+        status = "success" if success else "failed"
         with self.engine.begin() as conn:
             conn.execute(
                 sa.update(task_runs_table)
@@ -81,14 +88,47 @@ class TaskLogger:
                     task_runs_table.c.started == self.start_time,
                 )
                 .values(
-                    finished=self.finish_time,
-                    retries=self.retries,
-                    status=self.status,
-                    return_value=self.return_value,
+                    finished=finish_time,
+                    retries=retries,
+                    status=status,
+                    return_value=return_value,
                 )
             )
-        if "finish" in self.alert_events:
-            self._alert_task_finish()
+        if send_to := self._event_alerts("finish"):
+            subject = f"{status}: {self.name}"
+            components = [
+                Text(
+                    subject,
+                    font_size=FontSize.LARGE,
+                    content_type=ContentType.IMPORTANT
+                    if success
+                    else ContentType.ERROR,
+                ),
+                Map(
+                    {
+                        "Start": self.start_time.strftime("%Y-%m-%d %H:%M:%S"),
+                        "Finish": finish_time.strftime("%Y-%m-%d %H:%M:%S"),
+                        "Return Value": return_value,
+                    }
+                ),
+            ]
+            if self.errors:
+                components.append(
+                    Text(
+                        "ERRORS",
+                        font_size=FontSize.LARGE,
+                        content_type=ContentType.ERROR,
+                    )
+                )
+                for e in self.errors:
+                    components.append(
+                        Text(
+                            f"{type(e)}: {e}",
+                            font_size=FontSize.MEDIUM,
+                            content_type=ContentType.INFO,
+                        )
+                    )
+            send_alert(components=components, send_to=send_to)
         if self.errors and self.required:
             if self.exit_on_complete:
                 sys.exit(1)
@@ -98,62 +138,11 @@ class TaskLogger:
         if self.exit_on_complete:
             sys.exit(0 if success else 1)
 
-    def _alert_task_start(self):
-        msg = (
-            f"Started task {self.name} {self.start_time.strftime('%Y-%m-%d %H:%M:%S')}"
-        )
-        components = [
-            Text(
-                msg,
-                font_size=FontSize.LARGE,
-                content_type=ContentType.IMPORTANT,
-            )
-        ]
-        self._send_alerts(subject=msg, components=components)
-
-    def _alert_task_error(self, error: Exception):
-        subject = f"Error executing task {self.name}: {type(error)}"
-        components = [
-            Text(
-                f"{subject} -- {error}",
-                font_size=FontSize.LARGE,
-                content_type=ContentType.ERROR,
-            )
-        ]
-        self._send_alerts(subject=subject, components=components)
-
-    def _alert_task_finish(self):
-        subject = f"{self.status}: {self.name}"
-        components = [
-            Text(
-                subject,
-                font_size=FontSize.LARGE,
-                content_type=ContentType.IMPORTANT
-                if self.success
-                else ContentType.ERROR,
-            ),
-            Map(
-                {
-                    "Start": self.start_time.strftime("%Y-%m-%d %H:%M:%S"),
-                    "Finish": self.finish_time.strftime("%Y-%m-%d %H:%M:%S"),
-                    "Return Value": self.return_value,
-                }
-            ),
-        ]
-        if self.errors:
-            components.append(
-                Text(
-                    "ERRORS",
-                    font_size=FontSize.LARGE,
-                    content_type=ContentType.ERROR,
-                )
-            )
-            for e in self.errors:
-                components.append(
-                    Text(
-                        f"{type(e)}: {e}",
-                        font_size=FontSize.MEDIUM,
-                        content_type=ContentType.INFO,
-                    )
-                )
-        self._send_alerts(subject=subject, components=components)
+    def _event_alerts(
+        self, event: Literal["start", "error", "finish"]
+    ) -> List[SendCfg]:
+        send_to = []
+        for alert in self.alerts:
+            if event in alert.send_on:
+                send_to += alert.send_to
+        return send_to
