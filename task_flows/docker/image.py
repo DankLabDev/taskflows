@@ -1,13 +1,9 @@
-import pickle
-import re
 from dataclasses import asdict, dataclass
-from pathlib import Path
-from typing import Dict, Optional, Union
+from typing import Dict, Optional
 
 from docker.errors import ImageNotFound
 from docker.models.images import Image
 from task_flows.utils import logger
-from xxhash import xxh32
 
 from .utils import get_docker_client
 
@@ -28,12 +24,12 @@ class ContainerLimits:
 class Image:
     """Docker image."""
 
-    # Name to use in image name.
-    name: str
+    # Image name.
+    tag: str
     # Directory that docker build command should be ran in.
-    build_dir: Path
+    path: str
     # path to Dockerfile relative to `build_dir`.
-    dockerfile: Union[Path, str]
+    dockerfile: str
     # Whether to return the status
     quiet: bool = False
     # Do not use the cache when set to True.
@@ -77,66 +73,22 @@ class Image:
     # variables will be set in the container being built.
     use_config_proxy: Optional[bool] = None
 
-    def __post_init__(self):
-        if not (
-            dockerfile_path := Path(self.build_dir).joinpath(self.dockerfile)
-        ).exists():
-            raise FileNotFoundError(f"Dockerfile not found: {dockerfile_path}")
-
-        self.build_kwargs = asdict(self)
-        self.build_kwargs["path"] = str(self.build_kwargs.pop("build_dir"))
-        self.build_kwargs["dockerfile"] = str(self.build_kwargs.pop("dockerfile"))
-        ignore_keys = {"name"}
-        self.build_kwargs = {
-            k: v
-            for k, v in self.build_kwargs.items()
-            if v is not None and k not in ignore_keys
-        }
-
-        def sort_kwargs(kwargs):
-            kwargs = sorted(kwargs.items(), key=lambda x: x[0])
-            for idx, (k, v) in enumerate(kwargs):
-                if isinstance(v, dict):
-                    kwargs[idx] = (k, sort_kwargs(v))
-            return kwargs
-
-        img_id_components = [
-            re.sub(r"\s+", "", dockerfile_path.read_text()),
-            sort_kwargs(self.build_kwargs),
-        ]
-        # check for Poetry lock file.
-        if poetry_lock := dockerfile_path.parent.joinpath("poetry.lock"):
-            img_id_components.append(re.sub(r"\s+", "", poetry_lock.read_text()))
-        img_id = xxh32(pickle.dumps(img_id_components)).hexdigest()
-        self.build_kwargs["tag"] = self.tag = f"{self.name}-{img_id}"
-
-    def build(
-        self,
-        remove_old_versions: bool = True,
-        force_recreate: bool = False,
-    ) -> Image:
+    def build(self, force_recreate: bool = False) -> Image:
         client = get_docker_client()
         try:
             img = client.images.get(self.tag)
         except ImageNotFound:
             img = None
         if img is not None:
-            logger.info("Image %s already exists", self.tag)
+            logger.warning("Image already exists: %s", self.tag)
             if not force_recreate:
-                logger.info("Will not recreate image")
+                logger.warning("Will not recreate image: %s", self.tag)
                 return img
-            logger.info("Removing image")
+            logger.warning("Removing existing image: %s", self.tag)
             client.images.remove(self.tag, force=True)
         logger.info("Building image %s", self.tag)
-        built_img, log = client.images.build(**self.build_kwargs)
+        built_img, log = client.images.build(**asdict(self))
         print(_fmt_log(log))
-        if remove_old_versions:
-            for img in client.images.list():
-                if tag := img.attrs["RepoTags"]:
-                    tag = tag[0]
-                    if self.tag not in tag and tag.startswith(self.name):
-                        logger.info("Removing old image version: %s", tag)
-                        client.images.remove(tag, force=True)
         return built_img
 
 
