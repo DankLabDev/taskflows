@@ -1,3 +1,5 @@
+from alert_msgs.msgdst import Email, Slack
+
 from .docker import Container, Image, Volume
 from .schedule import ScheduledDockerTask, ScheduledMambaTask, ScheduledTask
 from .systemd.core import (
@@ -18,3 +20,4 @@ from .systemd.models import (
     OnUnitInactiveSec,
 )
 from .tasks import task
+from .utils import Alerts

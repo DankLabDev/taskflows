@@ -1,10 +1,9 @@
 import sys
 from datetime import datetime
-from typing import Any, Literal, Optional, Sequence, List
+from typing import Any, List, Literal, Optional, Sequence
 
 import sqlalchemy as sa
-from alert_msgs import ContentType, FontSize, Map, Text, send_alert, SendCfg
-
+from alert_msgs import ContentType, FontSize, Map, MsgDst, Text, send_alert
 from task_flows.database.core import create_missing_tables, engine_from_env
 from task_flows.database.tables import task_errors_table, task_runs_table
 from task_flows.utils import Alerts
@@ -138,9 +137,7 @@ class TaskLogger:
         if self.exit_on_complete:
             sys.exit(0 if success else 1)
 
-    def _event_alerts(
-        self, event: Literal["start", "error", "finish"]
-    ) -> List[SendCfg]:
+    def _event_alerts(self, event: Literal["start", "error", "finish"]) -> List[MsgDst]:
         send_to = []
         for alert in self.alerts:
             if event in alert.send_on:

@@ -40,7 +40,7 @@ class ScheduledDockerTask(ScheduledTask):
     def __init__(
         self,
         task_name: str,
-        timer: Timer | Sequence[Timer],
+        timer: Union[Timer, Sequence[Timer]],
         container: Container,
         docker_action: Literal["start", "stop"] = "start",
     ) -> None:
@@ -64,7 +64,7 @@ class ScheduledMambaTask(ScheduledTask):
         self,
         task_name: str,
         command: str,
-        timer: Timer | Sequence[Timer],
+        timer: Union[Timer, Sequence[Timer]],
         env_name: str,
     ) -> None:
         mamba_exe = Path.home().joinpath("mambaforge", "bin", "mamba")

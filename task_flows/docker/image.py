@@ -88,18 +88,14 @@ class Image:
             client.images.remove(self.tag, force=True)
         logger.info("Building image %s", self.tag)
         built_img, log = client.images.build(**asdict(self))
-        print(_fmt_log(log))
+        fmt_log = []
+        for row in log:
+            if "id" in row:
+                row_fmt = f"[{row['id']}][{row['status']}]"
+                if row["progress_detail"]:
+                    row_fmt += f"[{row['progress_detail']}]"
+                row_fmt += f"[{row['progress']}]"
+            elif "stream" in row:
+                fmt_log.append(row["stream"])
+        print("".join(fmt_log))
         return built_img
-
-
-def _fmt_log(log) -> str:
-    fmt_log = []
-    for row in log:
-        if "id" in row:
-            row_fmt = f"[{row['id']}][{row['status']}]"
-            if row["progress_detail"]:
-                row_fmt += f"[{row['progress_detail']}]"
-            row_fmt += f"[{row['progress']}]"
-        elif "stream" in row:
-            fmt_log.append(row["stream"])
-    return "".join(fmt_log)
