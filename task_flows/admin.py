@@ -185,7 +185,7 @@ def show(match: Optional[str] = None, history: Optional[int] = None):
 @click.argument("task_name")
 def logs(task_name: str):
     """Show logs for a task."""
-    subprocess.run(f"journalctl --user -u {_FILE_PREFIX}{task_name}".split())
+    subprocess.run(f"journalctl --user -f -u {_FILE_PREFIX}{task_name}".split())
 
 
 @cli.command()

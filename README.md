@@ -23,29 +23,29 @@ task.create()
 ### Create Tasks
 Turn any function (optionally async) into a task that logs metadata to the database and sends alerts, allows retries, etc..
 ```python
+alerts=[
+    Alerts(
+        send_to=[   
+            Slack(
+                bot_token=os.getenv("SLACK_BOT_TOKEN"),
+                app_token=os.getenv("SLACK_APP_TOKEN"),
+                channel="critical_alerts"
+            ),
+            Email(
+                addr="sender@gmail.com", 
+                password=os.getenv("EMAIL_PWD"),
+                receiver_addr=["someone@gmail.com", "someone@yahoo.com"]
+            )
+        ],
+        send_on=["start", "error", "finish"]
+    )
+]
 @task(
     name='some-task',
     required=True,
     retries=1,
     timeout=30,
-    alert_methods=["slack","email"],
-    alert_events=["start", "error", "finish"]
-)
-async def hello():
-    print("Hi.")
-```
-Environmental variables can be set for argument defaults that should be applied to all tasks that don't specify a value for the argument.
-Then the above function is equivalent to:
-```bash
-export TASK_FLOWS_ALERT_METHODS="slack,email"
-export TASK_FLOWS_ALERT_EVENTS="start,error,finish"
-```
-```python
-@task(
-    name='some-task',
-    required=True,
-    retries=1,
-    timeout=2,
+    alerts=alerts
 )
 async def hello():
     print("Hi.")

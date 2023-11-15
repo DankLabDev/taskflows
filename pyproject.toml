@@ -1,6 +1,6 @@
 [project]
 name = "task-flows"
-version = "0.3.2"
+version = "0.3.3"
 description = "Python task management, scheduling, alerts."
 authors = [{ name = "Dan Kelleher", email = "kelleherjdan@gmail.com" }]
 license = { text = "MIT" }
