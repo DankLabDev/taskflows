@@ -16,23 +16,19 @@ from rich.table import Table
 from rich.text import Text
 from tqdm import tqdm
 
-from .database import engine_from_env
-from .database.tables import task_runs_table
-from .schedule import ScheduledTask
-from .systemd.core import (
-    _names_from_files,
-    disable_scheduled_task,
-    enable_scheduled_task,
-    remove_scheduled_task,
+from .db import engine_from_env, task_runs_table
+from .service import (
+    Service,
+    disable_service,
+    enable_service,
+    remove_service,
     restart_task,
     run_task,
     stop_task,
 )
 from .utils import _FILE_PREFIX, parse_systemctl_tables
 
-# TODO add host argument and forward commands via Fabric, record task host in database, pull stats and logs from hosts.
-
-cli = ClickGroup("task-flows")
+cli = ClickGroup("taskflows")
 
 
 def task_runs_history(
@@ -211,19 +207,17 @@ def create(
     tasks = {}
     if tasks_file.endswith(".py"):
         for member in import_module(tasks_file).__dict__.values():
-            if isinstance(member, ScheduledTask):
+            if isinstance(member, Service):
                 tasks[member.task_name] = member
             elif isinstance(member, (list, tuple)):
-                tasks.update(
-                    {m.task_name: m for m in member if isinstance(m, ScheduledTask)}
-                )
+                tasks.update({m.task_name: m for m in member if isinstance(m, Service)})
             elif isinstance(member, dict):
                 for k, v in member.items():
-                    if isinstance(v, ScheduledTask):
+                    if isinstance(v, Service):
                         tasks[v.task_name] = v
                         tasks[k] = v
                     elif isinstance(v, (list, tuple)) and (
-                        v := {m.task_name: m for m in v if isinstance(m, ScheduledTask)}
+                        v := {m.task_name: m for m in v if isinstance(m, Service)}
                     ):
                         tasks.update(v)
                         tasks[k] = v
@@ -279,7 +273,7 @@ def restart(task_name: str):
 def enable(task_names: Optional[Tuple[str]] = None):
     """Reenable a currently disabled scheduled task."""
     for task_name in tqdm(task_names):
-        enable_scheduled_task(task_name)
+        enable_service(task_name)
     click.echo(click.style("Done!", fg="green"))
 
 
@@ -290,7 +284,7 @@ def enable(task_names: Optional[Tuple[str]] = None):
 def disable(task_names: Optional[Tuple[str]] = None):
     """Disable a scheduled task."""
     for task_name in tqdm(task_names):
-        disable_scheduled_task(task_name)
+        disable_service(task_name)
     click.echo(click.style("Done!", fg="green"))
 
 
@@ -302,12 +296,11 @@ def remove(
     task_names: Optional[Tuple[str]] = None,
 ):
     """Disable task(s) and remove any Systemd and Docker artifacts."""
-    task_names = task_names or _names_from_files("task")
+    # TODO get all task names from database.
     if not task_names:
         click.echo(click.style("No tasks to remove!", fg="yellow"))
         return
     for task_name in tqdm(task_names):
         # click.echo(click.style(f"Removing scheduled task {task_name}", fg="cyan"))
-        remove_scheduled_task(task_name)
-        # TODO remove docker artifacts
+        remove_service(task_name)
     click.echo(click.style("Done!", fg="green"))

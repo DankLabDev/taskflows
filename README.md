@@ -4,21 +4,10 @@
 Admin commands are accessed via the `tasks` command line tool. See `tasks --help` for complete usage.  
 
 ### Setup
-`pip install task-flows`   
+`pip install taskflows`   
 
-Task execution metadata is stored in Postgresql. Set environment variable `TASK_FLOWS_DB` to the URL of the Postgresql instance you would like to use.
+Task execution metadata is stored in Postgresql. Set environment variable `TASKFLOWS_DB` to the URL of the Postgresql instance you would like to use.
 
-### Create a scheduled Task
-```python
-from task_flows import ScheduledTask, OnCalendar
-
-task = ScheduledTask(
-    task_name="my-task",
-    command="my-command",
-    timer=OnCalendar("Sun 17:00 America/New_York"),
-)
-task.create()
-```
 
 ### Create Tasks
 Turn any function (optionally async) into a task that logs metadata to the database and sends alerts, allows retries, etc..
@@ -53,6 +42,21 @@ async def hello():
 
 ### Review Task Status/Results
 Tasks can send alerts via Slack and/or Email, as shown in the above example. Task start/finish times, status, retry count, return values can be found in the `task_runs` table. Any errors that occurred during the execution of a task can be found in the `task_errors` table.
+
+
+### Create a scheduled Task
+```python
+from taskflows import ScheduledTask, OnCalendar
+
+task = ScheduledTask(
+    task_name="my-task",
+    command="my-command",
+    timer=OnCalendar("Sun 17:00 America/New_York"),
+)
+task.create()
+```
+
+
 
 
 

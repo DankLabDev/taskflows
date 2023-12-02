@@ -3,8 +3,9 @@ from uuid import uuid4
 
 import pytest
 import sqlalchemy as sa
-from task_flows.database.tables import task_errors_table, task_runs_table
-from task_flows.tasks.logger import TaskLogger
+
+from taskflows.db import task_errors_table, task_runs_table
+from taskflows.tasks import TaskLogger
 
 
 @pytest.fixture

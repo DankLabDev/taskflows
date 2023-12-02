@@ -1,5 +1,5 @@
 [project]
-name = "task-flows"
+name = "taskflows"
 version = "0.3.3"
 description = "Python task management, scheduling, alerts."
 authors = [{ name = "Dan Kelleher", email = "kelleherjdan@gmail.com" }]
@@ -13,29 +13,24 @@ readme = "README.md"
 
 dependencies = [
     "sqlalchemy>=2.0.0",
-    "docker",
+    "pydantic>=2.0.0",
     "tqdm",
     "click",
-    "psycopg[c]>=3.0.0",
     "python-dotenv",
-    "xxhash",
-    "paramiko",
     "rich",
-    "python-dateutil",
-    "jinja2",
     "dynamic-imports>=1.0.0",
     "alert-msgs>=0.2.0",
-    "ezloggers>=1.1.0",
+    "quicklogs>=1.1.0",
     "func-timeout>=4.0.0",
 ]
 
 [project.optional-dependencies]
-dev = ["black", "pytest"]
+dev = ["black", "pytest", "psycopg>=3.0.0"]
 
 [build-system]
 requires = ["setuptools>=43.0.0", "setuptools-scm", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project.scripts]
-taskflows = 'task_flows.admin:cli'
-_task_flows_call = 'task_flows.docker:_task_flows_call'
+taskflows = 'taskflows.admin:cli'
+_taskflows_call = 'taskflows.utils:_taskflows_call'

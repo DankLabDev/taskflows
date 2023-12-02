@@ -1,17 +1,14 @@
-import json
 import re
 from subprocess import run
-from typing import Callable, Dict, List, Literal, Optional, Sequence
+from typing import Dict, List, Literal, Sequence
 
-import click
 from alert_msgs import MsgDst
-from dynamic_imports import import_module_attr
-from ezloggers import get_logger
 from pydantic import BaseModel
+from quicklogs import get_logger
 
-logger = get_logger("task-flows", stdout=True)
+logger = get_logger("taskflows", stdout=True)
 
-_FILE_PREFIX = "task_flow_"
+_FILE_PREFIX = "taskflow_"
 
 
 class Alerts(BaseModel):
@@ -41,29 +38,3 @@ def parse_systemctl_tables(command: List[str]) -> List[Dict[str, str]]:
             line_data[match.group()] = field_text.strip()
         lines_data.append(line_data)
     return lines_data
-
-
-def func_call_cmd(func: Callable, *args, **kwargs) -> str:
-    """Generate command to call function with optional args and kwargs."""
-    # TODO env arg with non-poetry stuff.
-    cmd = f"poetry run _tasks_flows_call {func.__module__} {func.__name__}"
-    if args:
-        cmd += f" --args {json.dumps(args)}"
-    if kwargs:
-        cmd += f" --kwargs {json.dumps(kwargs)}"
-    return cmd
-
-
-@click.command()
-@click.argument("module")
-@click.argument("func")
-@click.option("--args")
-@click.option("--kwargs")
-def _task_flows_call(
-    module: str, func: str, args: Optional[str] = None, kwargs: Optional[str] = None
-):
-    """This is installed."""
-    args = json.loads(args) if args else []
-    kwargs = json.loads(kwargs) if kwargs else {}
-    func = import_module_attr(module, func)
-    func(*args, **kwargs)

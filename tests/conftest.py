@@ -1,5 +1,6 @@
 import pytest
-from task_flows.database.core import create_missing_tables
+
+from taskflows.db import create_missing_tables
 
 
 @pytest.fixture
