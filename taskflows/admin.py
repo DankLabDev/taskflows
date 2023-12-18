@@ -208,16 +208,16 @@ def create(
     if tasks_file.endswith(".py"):
         for member in import_module(tasks_file).__dict__.values():
             if isinstance(member, Service):
-                tasks[member.task_name] = member
+                tasks[member.name] = member
             elif isinstance(member, (list, tuple)):
-                tasks.update({m.task_name: m for m in member if isinstance(m, Service)})
+                tasks.update({m.name: m for m in member if isinstance(m, Service)})
             elif isinstance(member, dict):
                 for k, v in member.items():
                     if isinstance(v, Service):
-                        tasks[v.task_name] = v
+                        tasks[v.name] = v
                         tasks[k] = v
                     elif isinstance(v, (list, tuple)) and (
-                        v := {m.task_name: m for m in v if isinstance(m, Service)}
+                        v := {m.name: m for m in v if isinstance(m, Service)}
                     ):
                         tasks.update(v)
                         tasks[k] = v
