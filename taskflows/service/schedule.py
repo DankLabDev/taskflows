@@ -1,14 +1,16 @@
 from datetime import datetime
 from typing import List, Literal
 
-from pydantic import BaseModel
+from pydantic.dataclasses import dataclass
 
 
-class Schedule(BaseModel):
+@dataclass
+class Schedule:
     def unit_entries(self) -> List[str]:
         raise NotImplementedError("unit_entries not implemented in Schedule")
 
 
+@dataclass
 class Calendar(Schedule):
     """Defines realtime (i.e. wallclock) timers with calendar event expressions.
 
@@ -28,6 +30,7 @@ class Calendar(Schedule):
         return [f"OnCalendar={self.schedule}"]
 
 
+@dataclass
 class Periodic(Schedule):
     # 'boot': Start service when machine is booted.
     # 'login': Start service when user logs in.
