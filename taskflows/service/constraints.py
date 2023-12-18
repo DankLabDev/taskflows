@@ -12,9 +12,7 @@ class HardwareConstraint(BaseModel):
 
     def unit_entries(self) -> str:
         action = "Constraint" if self.silent else "Assert"
-        return [
-            f"{action}{self.__class__.__name__}={self.max_percent}%/{self.timespan}"
-        ]
+        return [f"{action}{self.__class__.__name__}={self.constraint}{self.amount}"]
 
 
 class Memory(HardwareConstraint):

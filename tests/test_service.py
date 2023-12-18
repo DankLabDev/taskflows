@@ -6,7 +6,7 @@ from time import sleep, time
 import pytest
 from quicklogs import get_logger
 
-from taskflows.service import Calendar, Service
+from taskflows.service import Calendar, Periodic, Service, constraints
 from taskflows.service.service import systemd_dir
 from taskflows.utils import _FILE_PREFIX
 
@@ -69,3 +69,35 @@ def test_schedule(test_name, log_dir):
     assert log_file.read_text().strip() == test_name
     srv.remove()
     assert not timer_file.exists()
+
+
+def test_config():
+    v = Calendar("Sun 17:00 America/New_York")
+    assert isinstance(v.unit_entries(), list)
+
+    v = Periodic(start_on="boot", period=10, relative_to="period")
+    assert isinstance(v.unit_entries(), list)
+
+    v = Periodic("login", 1, "start")
+    assert isinstance(v.unit_entries(), list)
+
+    v = constraints.Memory(amount=1000000, constraint=">=", silent=True)
+    assert isinstance(v.unit_entries(), list)
+
+    v = constraints.Memory(amount=908902, constraint="=", silent=False)
+    assert isinstance(v.unit_entries(), list)
+
+    v = constraints.CPUs(amount=9, constraint=">=", silent=True)
+    assert isinstance(v.unit_entries(), list)
+
+    v = constraints.CPUPressure(max_percent=80, timespan="5min", silent=True)
+    assert isinstance(v.unit_entries(), list)
+
+    v = constraints.MemoryPressure(max_percent=90, timespan="5min", silent=False)
+    assert isinstance(v.unit_entries(), list)
+
+    v = constraints.CPUPressure(max_percent=80, timespan="1min", silent=False)
+    assert isinstance(v.unit_entries(), list)
+
+    v = constraints.IOPressure(max_percent=80, timespan="10sec", silent=True)
+    assert isinstance(v.unit_entries(), list)
