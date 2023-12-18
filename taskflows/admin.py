@@ -22,9 +22,9 @@ from .service import (
     disable_service,
     enable_service,
     remove_service,
-    restart_task,
-    run_task,
-    stop_task,
+    restart_service,
+    run_service,
+    stop_service,
 )
 from .utils import _FILE_PREFIX, parse_systemctl_tables
 
@@ -241,7 +241,7 @@ def run(task_name: str):
     Args:
         task_name (str): Name of the task to run.
     """
-    run_task(task_name)
+    run_service(task_name)
 
 
 @cli.command()
@@ -252,7 +252,7 @@ def stop(task_name: str):
     Args:
         name (str): Name of task to stop.
     """
-    stop_task(task_name)
+    stop_service(task_name)
 
 
 @cli.command()
@@ -263,7 +263,7 @@ def restart(task_name: str):
     Args:
         name (str): Name of task to restart.
     """
-    restart_task(task_name)
+    restart_service(task_name)
 
 
 @cli.command()

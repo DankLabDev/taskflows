@@ -12,8 +12,10 @@ class Schedule(BaseModel):
 class Calendar(Schedule):
     """Defines realtime (i.e. wallclock) timers with calendar event expressions.
 
-    Format: DayOfWeek Year-Month-Day Hour:Minute:Second
+    Format: DayOfWeek Year-Month-Day Hour:Minute:Second TimeZone
+    Time zone is optional.
     Day of week. Possible values are Sun,Mon,Tue,Wed,Thu,Fri,Sat
+    Example: Sun 17:00 America/New_York
     """
 
     schedule: str

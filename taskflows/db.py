@@ -1,5 +1,5 @@
 import os
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from functools import lru_cache
 
 import sqlalchemy as sa
@@ -37,6 +37,20 @@ def create_missing_tables():
 
 metadata = sa.MetaData(schema="taskflows")
 
+service_runs_table = sa.Table(
+    "service_runs",
+    metadata,
+    sa.Column("service_name", sa.String, primary_key=True),
+    sa.Column(
+        "started",
+        sa.DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        primary_key=True,
+    ),
+    sa.Column("finished", sa.DateTime(timezone=True)),
+    sa.Column("success", sa.Boolean),
+)
+
 task_runs_table = sa.Table(
     "task_runs",
     metadata,
@@ -44,7 +58,7 @@ task_runs_table = sa.Table(
     sa.Column(
         "started",
         sa.DateTime(timezone=True),
-        default=lambda: datetime.now(UTC),
+        default=lambda: datetime.now(timezone.utc),
         primary_key=True,
     ),
     sa.Column("finished", sa.DateTime(timezone=True)),
@@ -60,7 +74,7 @@ task_errors_table = sa.Table(
     sa.Column(
         "time",
         sa.DateTime(timezone=True),
-        default=lambda: datetime.now(UTC),
+        default=lambda: datetime.now(timezone.utc),
         primary_key=True,
     ),
     sa.Column("type", sa.String),

@@ -13,7 +13,6 @@ from typing import Any, Dict, Literal, Optional, Sequence, Union
 
 from pydantic import BaseModel
 
-from taskflows.db import create_missing_tables
 from taskflows.utils import _FILE_PREFIX, logger
 
 from .constraints import HardwareConstraint, SystemLoadConstraint
@@ -83,7 +82,7 @@ class Service(BaseModel):
 
     def create(self):
         logger.info("Creating service %s", self.name)
-        create_missing_tables()
+        # create_missing_tables()
         self._write_timer_unit()
         self._write_service_unit()
         self.enable()

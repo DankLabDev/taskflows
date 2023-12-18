@@ -8,4 +8,12 @@ from .constraints import (
     SystemLoadConstraint,
 )
 from .schedule import Calendar, Periodic, Schedule
-from .service import Service
+from .service import (
+    Service,
+    disable_service,
+    enable_service,
+    remove_service,
+    restart_service,
+    run_service,
+    stop_service,
+)

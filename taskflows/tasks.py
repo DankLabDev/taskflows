@@ -1,7 +1,7 @@
 import asyncio
 import inspect
 import sys
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from functools import partial
 from logging import Logger
 from typing import Any, Callable, List, Literal, Optional, Sequence
@@ -86,7 +86,7 @@ class TaskLogger:
         self.errors = []
 
     def on_task_start(self):
-        self.start_time = datetime.now(UTC)
+        self.start_time = datetime.now(timezone.utc)
         with self.engine.begin() as conn:
             conn.execute(
                 sa.insert(task_runs_table).values(
@@ -131,7 +131,7 @@ class TaskLogger:
         return_value: Any = None,
         retries: int = 0,
     ) -> datetime:
-        finish_time = datetime.now(UTC)
+        finish_time = datetime.now(timezone.utc)
         status = "success" if success else "failed"
         with self.engine.begin() as conn:
             conn.execute(
