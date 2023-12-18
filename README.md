@@ -46,13 +46,14 @@ Tasks can send alerts via Slack and/or Email, as shown in the above example. Tas
 
 ### Create a scheduled Task
 ```python
-from taskflows import ScheduledTask, OnCalendar
+from taskflows import Calendar, Service
 
-task = ScheduledTask(
-    task_name="my-task",
-    command="my-command",
-    timer=OnCalendar("Sun 17:00 America/New_York"),
+tws_weekend_start_srv = Service(
+    name="something",
+    command="docker start something",
+    schedule=Calendar("Mon-Sun 14:00 America/New_York"),
 )
+
 task.create()
 ```
 
