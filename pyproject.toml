@@ -25,7 +25,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["black", "pytest", "psycopg>=3.0.0"]
+dev = ["black", "pytest", "pytest-asyncio", "psycopg>=3.0.0"]
 
 [build-system]
 requires = ["setuptools>=43.0.0", "setuptools-scm", "wheel"]
@@ -33,4 +33,4 @@ build-backend = "setuptools.build_meta"
 
 [project.scripts]
 taskflows = 'taskflows.admin:cli'
-_taskflows_call = 'taskflows.utils:_taskflows_call'
+_taskflows_call = 'taskflows.service.commands:_taskflows_call'

@@ -56,8 +56,3 @@ tws_weekend_start_srv = Service(
 
 task.create()
 ```
-
-
-
-
-
