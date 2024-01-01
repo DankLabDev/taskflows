@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from functools import lru_cache
 
 import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.engine import Engine
 
 from taskflows.utils import logger
@@ -31,11 +32,22 @@ def create_missing_tables():
         for table in (
             task_runs_table,
             task_errors_table,
+            services_table,
+            service_runs_table,
         ):
             table.create(conn, checkfirst=True)
 
 
 metadata = sa.MetaData(schema="taskflows")
+
+services_table = sa.Table(
+    "services",
+    metadata,
+    sa.Column("name", sa.String, primary_key=True),
+    sa.Column("command", sa.String, default=True),
+    sa.Column("schedule", JSON),
+    sa.Column("config", JSON),
+)
 
 service_runs_table = sa.Table(
     "service_runs",

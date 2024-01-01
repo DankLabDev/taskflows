@@ -7,12 +7,21 @@ https://www.freedesktop.org/software/systemd/man/systemd.timer.html#Options.
 https://documentation.suse.com/smart/systems-management/html/systemd-working-with-timers/index.html
 """
 
+import re
+from collections import defaultdict
+from dataclasses import asdict
+from datetime import datetime
+from fnmatch import fnmatch
 from pathlib import Path
 from subprocess import run
-from typing import Any, Dict, Literal, Optional, Sequence, Union
+from time import time
+from typing import Any, Dict, List, Literal, Optional, Sequence, Union
 
+import sqlalchemy as sa
 from pydantic import BaseModel
+from sqlalchemy.dialects.postgresql import insert
 
+from taskflows.db import engine_from_env, services_table
 from taskflows.utils import _FILE_PREFIX, logger
 
 from .constraints import HardwareConstraint, SystemLoadConstraint
@@ -29,6 +38,7 @@ ServiceNames = Optional[Union[str, Sequence[str]]]
 class Service(BaseModel):
     name: str
     command: str
+    description: Optional[str] = None
     schedule: Optional[Union[Schedule, Sequence[Schedule]]] = None
     hardware_constraints: Optional[
         Union[HardwareConstraint, Sequence[HardwareConstraint]]
@@ -85,25 +95,32 @@ class Service(BaseModel):
         # create_missing_tables()
         self._write_timer_unit()
         self._write_service_unit()
+        self._save_db_metadata()
         self.enable()
 
     def enable(self):
         enable_service(self.name)
 
     def run(self):
-        run_service(service_name=self.name)
+        run_service(self.name)
 
     def stop(self):
-        stop_service(service_name=self.name)
+        stop_service(self.name)
 
     def restart(self):
-        restart_service(service_name=self.name)
+        restart_service(self.name)
 
     def disable(self):
-        disable_service(service_name=self.name)
+        disable_service(self.name)
 
     def remove(self):
-        remove_service(service_name=self.name)
+        remove_service(self.name)
+
+    def as_dict(self) -> Dict[str, Any]:
+        data = self.model_dump()
+        if self.schedule:
+            data["schedule"] = asdict(self.schedule)
+        return {k: v for k, v in data.items() if v is not None}
 
     def _join_values(self, values: Any):
         if isinstance(values, str):
@@ -111,6 +128,21 @@ class Service(BaseModel):
         elif isinstance(values, (list, tuple)):
             return " ".join(values)
         raise ValueError(f"Unexpected type for values: {type(values)}")
+
+    def _save_db_metadata(self):
+        data = self.as_dict()
+        name = data.pop("name")
+        command = data.pop("command")
+        schedule = data.pop("schedule", None)
+        statement = insert(services_table).values(
+            name=name, command=command, schedule=schedule, config=data
+        )
+        on_conf_set = {c.name: c for c in statement.excluded}
+        statement = statement.on_conflict_do_update(
+            index_elements=services_table.primary_key.columns, set_=on_conf_set
+        )
+        with engine_from_env().begin() as conn:
+            conn.execute(statement)
 
     def _write_timer_unit(self):
         if not self.schedule:
@@ -134,6 +166,8 @@ class Service(BaseModel):
     def _write_service_unit(self):
         # TODO systemd-escape command
         unit = set()
+        if self.description:
+            unit.add(f"Description={self.description}")
         if self.start_after:
             # TODO add "After=network.target"
             unit.add(f"After={self._join_values(self.start_after)}")
@@ -190,7 +224,6 @@ class Service(BaseModel):
             "Type=simple",
             f"ExecStart={self.command}",
             "[Unit]",
-            f"Description={self.name}",
             *unit,
             "[Install]",
             "WantedBy=multi-user.target",
@@ -207,64 +240,152 @@ class Service(BaseModel):
         file.write_text(content)
 
 
-def enable_service(service_name: str):
-    """Enable a service."""
-    logger.info("Enabling scheduled service %s", service_name)
-    user_systemctl("enable", "--now", f"{_FILE_PREFIX}{service_name}.timer")
-
-
-def run_service(service_name: str):
-    """Run a service.
+def enable_service(service: str):
+    """Enable currently disabled service(s).
 
     Args:
-        service_name (str): Name of service to run.
+        service (str): Name or name pattern of service(s) to restart.
     """
-    logger.info("Running service %s", service_name)
-    service_cmd(service_name, "start")
+    for service_name in get_service_names(service):
+        logger.info("Enabling service: %s", service_name)
+        user_systemctl("enable", "--now", f"{_FILE_PREFIX}{service_name}.timer")
 
 
-def restart_service(service_name: str):
-    """Restart a running service.
+def run_service(service: str):
+    """Run service(s).
 
     Args:
-        service_name (str): Name of service to restart.
+        service_name (str): Name or name pattern of service(s) to run.
     """
-    logger.info("Restarting service %s", service_name)
-    service_cmd(service_name, "restart")
+    for service_name in get_service_names(service):
+        logger.info("Running service: %s", service_name)
+        service_cmd(service_name, "start")
 
 
-def stop_service(service_name: str):
-    """Stop a running service.
+def restart_service(service: str):
+    """Restart running service(s).
 
     Args:
-        service_name (str): Name of service to stop.
+        service (str): Name or name pattern of service(s) to restart.
     """
-    logger.info("Stopping service %s", service_name)
-    service_cmd(service_name, "stop")
+    for service_name in get_service_names(service):
+        logger.info("Restarting service: %s", service_name)
+        service_cmd(service_name, "restart")
 
 
-def disable_service(service_name: Path):
-    """Disable a service."""
-    srvs = {f.stem for f in systemd_dir.glob(f"{_FILE_PREFIX}{service_name}*")}
-    for srv in srvs:
-        user_systemctl("disable", "--now", srv)
-        logger.info("Stopped and disabled unit: %s", srv)
+def stop_service(service: str):
+    """Stop running service(s).
+
+    Args:
+        service (str): Name or name pattern of service(s) to stop.
+    """
+    for service_name in get_service_names(service):
+        logger.info("Stopping service: %s", service_name)
+        service_cmd(service_name, "stop")
+
+
+def disable_service(service: str):
+    """Disable service(s).
+
+    Args:
+        service (str): Name or name pattern of service(s) to disable.
+    """
+    for service_name in get_service_names(service):
+        user_systemctl("disable", "--now", service_name)
+        logger.info("Stopped and disabled service: %s", service_name)
     # remove any failed status caused by stopping service.
     user_systemctl("reset-failed")
 
 
-def remove_service(service_name: Path):
-    """Completely remove a service's services and timers."""
-    logger.info("Removing scheduled service %s", service_name)
-    disable_service(service_name)
-    files = list(systemd_dir.glob(f"{_FILE_PREFIX}{service_name}.*"))
-    srvs = {f.stem for f in files}
-    for srv in srvs:
-        logger.info("Cleaning cache and runtime directories: %s.", srv)
-        user_systemctl("clean", srv)
-    for file in files:
-        logger.info("Deleting %s", file)
-        file.unlink()
+def remove_service(service: str):
+    """Remove service(s).
+
+    Args:
+        service (str): Name or name pattern of service(s) to remove.
+    """
+    engine = engine_from_env()
+    for service_name in get_service_names(service):
+        logger.info("Removing service %s", service_name)
+        disable_service(service_name)
+        files = list(systemd_dir.glob(f"{_FILE_PREFIX}{service_name}.*"))
+        srvs = {f.stem for f in files}
+        for srv in srvs:
+            logger.info("Cleaning cache and runtime directories: %s.", srv)
+            user_systemctl("clean", srv)
+        # remove files.
+        for file in files:
+            logger.info("Deleting %s", file)
+            file.unlink()
+        # remove from database.
+        with engine.begin() as conn:
+            conn.execute(
+                sa.delete(services_table).where(services_table.c.name == service_name)
+            )
+
+
+def service_runs(match: Optional[str] = None) -> Dict[str, Dict[str, str]]:
+    """Map service name to current schedule status."""
+    srv_runs = defaultdict(dict)
+    # get task status.
+    for info in parse_systemctl_tables(["systemctl", "--user", "list-timers"]):
+        if task_name := re.search(r"^taskflow_([\w-]+)\.timer", info["UNIT"]):
+            srv_runs[task_name.group(1)].update(
+                {
+                    "Next Run": f"{info['NEXT']} ({info['LEFT']})",
+                    "Last Run": f"{info['LAST']} ({info['PASSED']})",
+                }
+            )
+    for info in parse_systemctl_tables(
+        "systemctl --user list-units --type=service".split()
+    ):
+        if task_name := re.search(r"^taskflow_([\w-]+)\.service", info["UNIT"]):
+            if info["ACTIVE"] == "active":
+                srv_runs[task_name.group(1)]["Last Run"] += " (running)"
+    if match:
+        srv_runs = {k: v for k, v in srv_runs.items() if fnmatch(k, match)}
+    srv_runs = dict(
+        sorted(
+            srv_runs.items(),
+            key=lambda row: time()
+            if (
+                "(running)" in row[1]["Last Run"]
+                or not (
+                    dt := re.search(
+                        r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", row[1]["Last Run"]
+                    )
+                )
+            )
+            else datetime.fromisoformat(dt.group(0)).timestamp(),
+        )
+    )
+    return srv_runs
+
+
+def get_service_names(match: Optional[str] = None) -> List[str]:
+    """Get names of all services."""
+    srvs = {f.stem for f in systemd_dir.glob(f"{_FILE_PREFIX}*")}
+    names = [re.search(re.escape(_FILE_PREFIX) + r"(.*)$", s).group(1) for s in srvs]
+    if match:
+        names = [n for n in names if fnmatch(n, match)]
+    return names
+
+
+def parse_systemctl_tables(command: List[str]) -> List[Dict[str, str]]:
+    res = run(command, capture_output=True)
+    lines = res.stdout.decode().split("\n\n")[0].splitlines()
+    fields = list(re.finditer(r"[A-Z]+", lines.pop(0)))
+    lines_data = []
+    for line in lines:
+        line_data = {}
+        for next_idx, match in enumerate(fields, start=1):
+            char_start_idx = match.start()
+            if next_idx == len(fields):
+                field_text = line[char_start_idx:]
+            else:
+                field_text = line[char_start_idx : fields[next_idx].start()]
+            line_data[match.group()] = field_text.strip()
+        lines_data.append(line_data)
+    return lines_data
 
 
 def user_systemctl(*args):
