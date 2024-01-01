@@ -4,11 +4,12 @@ import sys
 from datetime import datetime, timezone
 from functools import partial
 from logging import Logger
-from typing import Any, Callable, List, Literal, Optional, Sequence
+from typing import Any, Callable, Dict, List, Literal, Optional, Sequence
 
 import sqlalchemy as sa
 from alert_msgs import ContentType, Emoji, FontSize, MsgDst, Text, send_alert
 from func_timeout import func_timeout
+from func_timeout.exceptions import FunctionTimedOut
 
 from .db import (
     create_missing_tables,
@@ -62,6 +63,40 @@ def task(
         )
 
     return task_decorator
+
+
+def task_runs_history(
+    count: Optional[int] = None, match: Optional[str] = None
+) -> Dict[str, List[Dict[str, Any]]]:
+    """Get task run history.
+
+    Args:
+        count (Optional[int], optional): Return the `count` latest task runs. Defaults to None.
+        match (Optional[str], optional): Return history for task names that contain `match` substring. Defaults to None.
+
+    Returns:
+        Dict[str, List[Dict[str, Any]]]: Map task name to task run history.
+    """
+    query = sa.select(task_runs_table.c.task_name).distinct()
+    if match:
+        query = query.where(task_runs_table.c.task_name.like(f"%{match}%"))
+    engine = engine_from_env()
+    with engine.begin() as conn:
+        task_names = list(conn.execute(query).scalars())
+    columns = [c.name.replace("_", " ").title() for c in task_runs_table.columns]
+    tasks_hist = {}
+    for task_name in task_names:
+        query = (
+            sa.select(task_runs_table)
+            .where(task_runs_table.c.task_name == task_name)
+            .order_by(task_runs_table.c.started.desc())
+        )
+        if count:
+            query = query.limit(count)
+        with engine.begin() as conn:
+            rows = [dict(zip(columns, row)) for row in conn.execute(query).fetchall()]
+        tasks_hist[task_name] = rows
+    return tasks_hist
 
 
 class TaskLogger:
@@ -188,7 +223,14 @@ class TaskLogger:
             if self.exit_on_complete:
                 sys.exit(1)
             if len(self.errors) > 1:
-                raise RuntimeError(f"Error executing task {self.name}: {self.errors}")
+                error_types = {type(e) for e in self.errors}
+                if len(error_types) == 1:
+                    raise error_types.pop()(
+                        f"{len(self.errors)} errors executing task {self.name}:\n{'\n\n'.join([str(e) for e in self.errors])}"
+                    )
+                raise RuntimeError(
+                    f"{len(self.errors)} errors executing task {self.name}: {self.errors}"
+                )
             raise type(self.errors[0])(str(self.errors[0]))
         if self.exit_on_complete:
             sys.exit(0 if success else 1)
@@ -212,6 +254,7 @@ def _task_wrapper(
 ):
     task_logger.on_task_start()
     for i in range(retries + 1):
+        exp = None
         try:
             if timeout:
                 # throws FunctionTimedOut if timeout is exceeded.
@@ -220,10 +263,15 @@ def _task_wrapper(
                 result = func(**kwargs)
             task_logger.on_task_finish(success=True, retries=i, return_value=result)
             return result
-        except Exception as exp:
-            msg = f"Error executing task {task_logger.name}. Retries remaining: {retries-i}.\n({type(exp)}) -- {exp}"
-            logger.error(msg)
-            task_logger.on_task_error(msg)
+
+        except FunctionTimedOut as e:
+            # standardize timeout exception for both task and async task.
+            exp = TimeoutError(e.msg)
+        except Exception as e:
+            exp = e
+        msg = f"Error executing task {task_logger.name}. Retries remaining: {retries-i}.\n({type(exp)}) -- {exp}"
+        logger.error(msg)
+        task_logger.on_task_error(exp)
     task_logger.on_task_finish(success=False, retries=retries)
 
 
@@ -240,7 +288,7 @@ async def _async_task_wrapper(
     for i in range(retries + 1):
         try:
             if timeout:
-                result = await asyncio.wait_for(func(**kwargs), timeout)
+                result = await asyncio.wait_for(func(**kwargs), timeout=timeout)
             else:
                 result = await func(**kwargs)
             task_logger.on_task_finish(success=True, retries=i, return_value=result)
@@ -248,5 +296,5 @@ async def _async_task_wrapper(
         except Exception as exp:
             msg = f"Error executing task {task_logger.name}. Retries remaining: {retries-i}.\n({type(exp)}) -- {exp}"
             logger.error(msg)
-            task_logger.on_task_error(msg)
+            task_logger.on_task_error(exp)
     task_logger.on_task_finish(success=False, retries=retries)
