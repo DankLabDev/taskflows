@@ -13,9 +13,9 @@ def mamba_command(env_name: str, command: str) -> str:
     return f"bash -c '{mamba_exe} run -n {env_name} {command}'"
 
 
-def func_call_cmd(func: Callable, *args, **kwargs) -> str:
+def func_call(func: Callable, *args, **kwargs) -> str:
     """Generate command to call function with optional args and kwargs."""
-    cmd = f"_tasks_flows_call {func.__module__} {func.__name__}"
+    cmd = f"_taskflows_call {func.__module__} {func.__name__}"
     if args:
         cmd += f" --args {json.dumps(args)}"
     if kwargs:
@@ -31,7 +31,7 @@ def func_call_cmd(func: Callable, *args, **kwargs) -> str:
 def _taskflows_call(
     module: str, func: str, args: Optional[str] = None, kwargs: Optional[str] = None
 ):
-    """This is installed."""
+    """Import function and call it. (This is installed)"""
     args = json.loads(args) if args else []
     kwargs = json.loads(kwargs) if kwargs else {}
     func = import_module_attr(module, func)
