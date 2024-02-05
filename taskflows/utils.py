@@ -6,7 +6,7 @@ from quicklogs import get_logger
 
 logger = get_logger("taskflows", stdout=True)
 
-_FILE_PREFIX = "taskflow_"
+_SYSD_FILE_PREFIX = "taskflow_"
 
 
 class Alerts(BaseModel):

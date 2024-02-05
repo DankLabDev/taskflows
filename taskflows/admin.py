@@ -1,5 +1,5 @@
 import subprocess
-from functools import cache
+from functools import lru_cache
 from itertools import cycle
 from pprint import pformat
 from typing import Optional, Tuple
@@ -12,7 +12,7 @@ from rich import box
 from rich.console import Console
 from rich.table import Table
 
-from .db import engine_from_env, services_table
+from .db import engine_from_env, services_table, task_runs_table
 from .service import (
     Service,
     disable_service,
@@ -24,20 +24,9 @@ from .service import (
     service_runs,
     stop_service,
 )
-from .tasks import task_runs_history
-from .utils import _FILE_PREFIX
+from .utils import _SYSD_FILE_PREFIX
 
 cli = Group("taskflows", chain=True)
-
-
-def table_column_colors():
-    colors_gen = cycle(["orange3", "green", "cyan", "magenta", "dodger_blue1", "red"])
-
-    @cache
-    def column_color(col_name: str) -> str:
-        return next(colors_gen)
-
-    return column_color
 
 
 @cli.command()
@@ -57,57 +46,31 @@ def history(limit: int, match: str = None):
 
     console = Console()
     column_color = table_column_colors()
-    hist = task_runs_history(count=limit, match=match)
-    for task_name, rows in hist.items():
-        columns = list(rows[0].keys())
-        columns.remove("Task Name")
-        table = Table(title=task_name, box=box.SIMPLE)
-        if all(row["Return Value"] is None for row in rows):
-            columns.remove("Return Value")
-        if all(row["Retries"] == 0 for row in rows):
-            columns.remove("Retries")
-        for c in columns:
-            table.add_column(c, style=column_color(c), justify="center")
-        for row in rows:
-            table.add_row(*[str(row[c]) for c in columns])
-        console.print(table, justify="center")
-
-
-def _service_schedules_table(running_only: bool, match: str = None) -> Table:
-    service_names = get_service_names(match)
-    query = sa.select(services_table.c.name, services_table.c.schedule).where(
-        services_table.c.name.in_(service_names)
-    )
-    with engine_from_env().begin() as conn:
-        srv_schedules = dict(conn.execute(query).fetchall())
-    srv_runs = service_runs(match)
-    if running_only:
-        srv_runs = {
-            srv_name: runs
-            for srv_name, runs in srv_runs.items()
-            if runs["Last Run"].endswith("(running)")
-        }
-        srv_schedules = {
-            srv_name: sched
-            for srv_name, sched in srv_schedules.items()
-            if srv_name in srv_runs
-        }
-    if not srv_schedules:
-        return
-    table = Table(box=box.SIMPLE)
-    column_color = table_column_colors()
-    for col in ("Service", "Schedule", "Next Run", "Last Run"):
-        table.add_column(col, style=column_color(col), justify="center")
-    for srv_name, sched in srv_schedules.items():
-        if len(sched) == 1:
-            sched = list(sched.values())[0]
-        else:
-            sched = ",".join(f"{k}:{v}" for k, v in sched)
-        runs = srv_runs.get(srv_name, {})
-        table.add_row(
-            srv_name, sched, runs.get("Next Run", {}), runs.get("Last Run", {})
+    task_names_query = sa.select(task_runs_table.c.task_name).distinct()
+    if match:
+        task_names_query = task_names_query.where(
+            task_runs_table.c.task_name.like(f"%{match}%")
         )
-    return table
+    query = (
+        sa.select(task_runs_table)
+        .where(task_runs_table.c.task_name.in_(task_names_query))
+        .order_by(task_runs_table.c.started.desc(), task_runs_table.c.task_name)
+    )
+    if limit:
+        query = query.limit(limit)
+    columns = [c.name.replace("_", " ").title() for c in task_runs_table.columns]
+    with engine_from_env().begin() as conn:
+        rows = [dict(zip(columns, row)) for row in conn.execute(query).fetchall()]
+    table = Table(title="Task History", box=box.SIMPLE)
+    if all(row["Return Value"] is None for row in rows):
+        columns.remove("Return Value")
+    if all(row["Retries"] == 0 for row in rows):
+        columns.remove("Retries")
+    for c in columns:
+        table.add_column(c, style=column_color(c), justify="center")
+    for row in rows:
+        table.add_row(*[str(row[c]) for c in columns])
+    console.print(table, justify="center")
 
 
 @cli.command(name="list")
@@ -150,7 +113,7 @@ def running():
 @click.argument("service_name")
 def logs(service_name: str):
     """Show logs for a service."""
-    subprocess.run(f"journalctl --user -f -u {_FILE_PREFIX}{service_name}".split())
+    subprocess.run(f"journalctl --user -f -u {_SYSD_FILE_PREFIX}{service_name}".split())
 
 
 @cli.command()
@@ -303,3 +266,50 @@ def remove(service: str):
     """
     remove_service(service)
     click.echo(click.style("Done!", fg="green"))
+
+
+def table_column_colors():
+    colors_gen = cycle(["orange3", "green", "cyan", "magenta", "dodger_blue1", "red"])
+
+    @lru_cache
+    def column_color(col_name: str) -> str:
+        return next(colors_gen)
+
+    return column_color
+
+
+def _service_schedules_table(running_only: bool, match: str = None) -> Table:
+    service_names = get_service_names(match)
+    query = sa.select(services_table.c.name, services_table.c.schedule).where(
+        services_table.c.name.in_(service_names)
+    )
+    with engine_from_env().begin() as conn:
+        srv_schedules = dict(conn.execute(query).fetchall())
+    srv_runs = service_runs(match)
+    if running_only:
+        srv_runs = {
+            srv_name: runs
+            for srv_name, runs in srv_runs.items()
+            if runs["Last Run"].endswith("(running)")
+        }
+        srv_schedules = {
+            srv_name: sched
+            for srv_name, sched in srv_schedules.items()
+            if srv_name in srv_runs
+        }
+    if not srv_schedules:
+        return
+    table = Table(box=box.SIMPLE)
+    column_color = table_column_colors()
+    for col in ("Service", "Schedule", "Next Run", "Last Run"):
+        table.add_column(col, style=column_color(col), justify="center")
+    for srv_name, sched in srv_schedules.items():
+        if len(sched) == 1:
+            sched = list(sched.values())[0]
+        else:
+            sched = ",".join(f"{k}:{v}" for k, v in sched)
+        runs = srv_runs.get(srv_name, {})
+        table.add_row(
+            srv_name, sched, runs.get("Next Run", {}), runs.get("Last Run", {})
+        )
+    return table

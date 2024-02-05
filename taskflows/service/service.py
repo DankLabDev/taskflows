@@ -22,7 +22,7 @@ from pydantic import BaseModel
 from sqlalchemy.dialects.postgresql import insert
 
 from taskflows.db import engine_from_env, services_table
-from taskflows.utils import _FILE_PREFIX, logger
+from taskflows.utils import _SYSD_FILE_PREFIX, logger
 
 from .constraints import HardwareConstraint, SystemLoadConstraint
 from .schedule import Schedule
@@ -30,9 +30,6 @@ from .schedule import Schedule
 systemd_dir = Path.home().joinpath(".config", "systemd", "user")
 
 ServiceNames = Optional[Union[str, Sequence[str]]]
-
-
-# TODO db log service on_success on_failure
 
 
 class Service(BaseModel):
@@ -232,7 +229,10 @@ class Service(BaseModel):
 
     def _write_systemd_file(self, unit_type: Literal["timer", "service"], content: str):
         systemd_dir.mkdir(parents=True, exist_ok=True)
-        file = systemd_dir / f"{_FILE_PREFIX}{self.name.replace(' ', '_')}.{unit_type}"
+        file = (
+            systemd_dir
+            / f"{_SYSD_FILE_PREFIX}{self.name.replace(' ', '_')}.{unit_type}"
+        )
         if file.exists():
             logger.warning("Replacing existing unit: %s", file)
         else:
@@ -248,7 +248,7 @@ def enable_service(service: str):
     """
     for service_name in get_service_names(service):
         logger.info("Enabling service: %s", service_name)
-        user_systemctl("enable", "--now", f"{_FILE_PREFIX}{service_name}.timer")
+        user_systemctl("enable", "--now", f"{_SYSD_FILE_PREFIX}{service_name}.timer")
 
 
 def run_service(service: str):
@@ -307,7 +307,7 @@ def remove_service(service: str):
     for service_name in get_service_names(service):
         logger.info("Removing service %s", service_name)
         disable_service(service_name)
-        files = list(systemd_dir.glob(f"{_FILE_PREFIX}{service_name}.*"))
+        files = list(systemd_dir.glob(f"{_SYSD_FILE_PREFIX}{service_name}.*"))
         srvs = {f.stem for f in files}
         for srv in srvs:
             logger.info("Cleaning cache and runtime directories: %s.", srv)
@@ -346,16 +346,18 @@ def service_runs(match: Optional[str] = None) -> Dict[str, Dict[str, str]]:
     srv_runs = dict(
         sorted(
             srv_runs.items(),
-            key=lambda row: time()
-            if (
-                "(running)" in row[1]["Last Run"]
-                or not (
-                    dt := re.search(
-                        r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", row[1]["Last Run"]
+            key=lambda row: (
+                time()
+                if (
+                    "(running)" in row[1]["Last Run"]
+                    or not (
+                        dt := re.search(
+                            r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", row[1]["Last Run"]
+                        )
                     )
                 )
-            )
-            else datetime.fromisoformat(dt.group(0)).timestamp(),
+                else datetime.fromisoformat(dt.group(0)).timestamp()
+            ),
         )
     )
     return srv_runs
@@ -363,8 +365,10 @@ def service_runs(match: Optional[str] = None) -> Dict[str, Dict[str, str]]:
 
 def get_service_names(match: Optional[str] = None) -> List[str]:
     """Get names of all services."""
-    srvs = {f.stem for f in systemd_dir.glob(f"{_FILE_PREFIX}*")}
-    names = [re.search(re.escape(_FILE_PREFIX) + r"(.*)$", s).group(1) for s in srvs]
+    srvs = {f.stem for f in systemd_dir.glob(f"{_SYSD_FILE_PREFIX}*")}
+    names = [
+        re.search(re.escape(_SYSD_FILE_PREFIX) + r"(.*)$", s).group(1) for s in srvs
+    ]
     if match:
         names = [n for n in names if fnmatch(n, match)]
     return names
@@ -394,6 +398,6 @@ def user_systemctl(*args):
 
 
 def service_cmd(service_name: str, command: str):
-    if not service_name.startswith(_FILE_PREFIX):
-        service_name = f"{_FILE_PREFIX}{service_name}"
+    if not service_name.startswith(_SYSD_FILE_PREFIX):
+        service_name = f"{_SYSD_FILE_PREFIX}{service_name}"
     user_systemctl(command, service_name)

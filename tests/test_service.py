@@ -8,7 +8,7 @@ from quicklogs import get_logger
 
 from taskflows.service import Calendar, Periodic, Service, constraints
 from taskflows.service.service import systemd_dir
-from taskflows.utils import _FILE_PREFIX
+from taskflows.utils import _SYSD_FILE_PREFIX
 
 
 @pytest.fixture
@@ -71,7 +71,7 @@ def test_service_management(test_name, log_dir):
     log_file = (log_dir / f"{test_name}.log").resolve()
     srv = Service(name=test_name, command=f"bash -c 'echo {test_name} >> {log_file}'")
     srv.create()
-    service_file = systemd_dir / f"{_FILE_PREFIX}{test_name}.service"
+    service_file = systemd_dir / f"{_SYSD_FILE_PREFIX}{test_name}.service"
     assert service_file.is_file()
     assert len(service_file.read_text())
     srv.run()
@@ -91,7 +91,7 @@ def test_schedule(test_name, log_dir):
         schedule=Calendar.from_datetime(run_time),
     )
     srv.create()
-    timer_file = systemd_dir / f"{_FILE_PREFIX}{test_name}.timer"
+    timer_file = systemd_dir / f"{_SYSD_FILE_PREFIX}{test_name}.timer"
     assert timer_file.is_file()
     assert len(timer_file.read_text())
     srv.run()

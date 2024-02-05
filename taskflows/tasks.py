@@ -4,7 +4,7 @@ import sys
 from datetime import datetime, timezone
 from functools import partial
 from logging import Logger
-from typing import Any, Callable, Dict, List, Literal, Optional, Sequence
+from typing import Any, Callable, List, Literal, Optional, Sequence
 
 import sqlalchemy as sa
 from alert_msgs import ContentType, Emoji, FontSize, MsgDst, Text, send_alert
@@ -63,40 +63,6 @@ def task(
         )
 
     return task_decorator
-
-
-def task_runs_history(
-    count: Optional[int] = None, match: Optional[str] = None
-) -> Dict[str, List[Dict[str, Any]]]:
-    """Get task run history.
-
-    Args:
-        count (Optional[int], optional): Return the `count` latest task runs. Defaults to None.
-        match (Optional[str], optional): Return history for task names that contain `match` substring. Defaults to None.
-
-    Returns:
-        Dict[str, List[Dict[str, Any]]]: Map task name to task run history.
-    """
-    query = sa.select(task_runs_table.c.task_name).distinct()
-    if match:
-        query = query.where(task_runs_table.c.task_name.like(f"%{match}%"))
-    engine = engine_from_env()
-    with engine.begin() as conn:
-        task_names = list(conn.execute(query).scalars())
-    columns = [c.name.replace("_", " ").title() for c in task_runs_table.columns]
-    tasks_hist = {}
-    for task_name in task_names:
-        query = (
-            sa.select(task_runs_table)
-            .where(task_runs_table.c.task_name == task_name)
-            .order_by(task_runs_table.c.started.desc())
-        )
-        if count:
-            query = query.limit(count)
-        with engine.begin() as conn:
-            rows = [dict(zip(columns, row)) for row in conn.execute(query).fetchall()]
-        tasks_hist[task_name] = rows
-    return tasks_hist
 
 
 class TaskLogger:
@@ -183,15 +149,13 @@ class TaskLogger:
                 )
             )
         if send_to := self._event_alerts("finish"):
-            start = self.start_time.strftime("%Y-%m-%d %H:%M:%S")
-            end = finish_time.strftime("%Y-%m-%d %H:%M:%S")
             components = [
                 Text(
-                    f"{Emoji.green_check if success else Emoji.red_x} {self.name} {start}-{end}({finish_time-self.start_time})",
+                    f"{Emoji.green_check if success else Emoji.red_x} {self.name} {self.start_time} - {finish_time} ({finish_time-self.start_time})",
                     font_size=FontSize.LARGE,
-                    content_type=ContentType.IMPORTANT
-                    if success
-                    else ContentType.ERROR,
+                    content_type=(
+                        ContentType.IMPORTANT if success else ContentType.ERROR
+                    ),
                 )
             ]
             if return_value is not None:
@@ -225,8 +189,9 @@ class TaskLogger:
             if len(self.errors) > 1:
                 error_types = {type(e) for e in self.errors}
                 if len(error_types) == 1:
+                    errors_str = "\n\n".join([str(e) for e in self.errors])
                     raise error_types.pop()(
-                        f"{len(self.errors)} errors executing task {self.name}:\n{'\n\n'.join([str(e) for e in self.errors])}"
+                        f"{len(self.errors)} errors executing task {self.name}:\n{errors_str}"
                     )
                 raise RuntimeError(
                     f"{len(self.errors)} errors executing task {self.name}: {self.errors}"
