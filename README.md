@@ -1,7 +1,7 @@
 
-## Python task management, scheduling, alerts.
+## Python Task Management, Scheduling, and Alerting.
 
-Admin commands are accessed via the `tasks` command line tool. See `tasks --help` for complete usage.  
+Admin commands are accessed via the `taskflows` command line tool. See `taskflows --help` for complete usage.  
 
 ### Setup
 `pip install taskflows`   
@@ -43,16 +43,39 @@ async def hello():
 ### Review Task Status/Results
 Tasks can send alerts via Slack and/or Email, as shown in the above example. Task start/finish times, status, retry count, return values can be found in the `task_runs` table. Any errors that occurred during the execution of a task can be found in the `task_errors` table.
 
+### Create Services
+Services run commands on a specified schedule. See [Service](taskflows/service/service.py#35) for service configuration options.   
 
-### Create a scheduled Task
+
+To create the service(s), use the `create` method (e.g. `srv.create()`), or use the CLI `create` command (e.g. `taskflows create my_services.py`)
 ```python
 from taskflows import Calendar, Service
-
-tws_weekend_start_srv = Service(
+```
+#### Run at specified calendar days/time.
+see [Calendar](taskflows/service/schedule.py#14) for more options.
+```python
+srv = Service(
     name="something",
     command="docker start something",
     schedule=Calendar("Mon-Sun 14:00 America/New_York"),
 )
-
-task.create()
+```
+#### Run command once at half an hour from now.
+```python
+run_time = datetime.now() + timedelta(minutes=30)
+srv = Service(
+    name='write-message',
+    command="bash -c 'echo hello >> hello.txt'",
+    schedule=Calendar.from_datetime(run_time),
+)
+```
+#### Run command after system boot, then again every 5 minutes after start of previous run. Skip run if CPU usage is over 80% for the last 5 minutes.
+see [Periodic](taskflows/service/schedule.py#34) and [constraints](taskflows/service/constraints.py) for more options.
+```python
+Service(
+    name="my-periodic-task",
+    command="docker start something",
+    schedule=Periodic(start_on="boot", period=60*5, relative_to="start"),
+    system_load_constraints=CPUPressure(max_percent=80, timespan="5min", silent=True)
+)
 ```
