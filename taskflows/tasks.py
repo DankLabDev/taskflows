@@ -11,12 +11,7 @@ from alert_msgs import ContentType, Emoji, FontSize, MsgDst, Text, send_alert
 from func_timeout import func_timeout
 from func_timeout.exceptions import FunctionTimedOut
 
-from .db import (
-    create_missing_tables,
-    engine_from_env,
-    task_errors_table,
-    task_runs_table,
-)
+from .db import task_flows_db
 from .utils import Alerts
 from .utils import logger as default_logger
 
@@ -68,8 +63,6 @@ def task(
 class TaskLogger:
     """Utility class for handing database logging, sending alerts, etc."""
 
-    create_missing_tables()
-
     def __init__(
         self,
         name: str,
@@ -83,15 +76,17 @@ class TaskLogger:
         self.alerts = alerts or []
         if isinstance(self.alerts, Alerts):
             self.alerts = [self.alerts]
-        self.engine = engine_from_env()
+        self.db = task_flows_db()
+        self.engine = self.db.engine
         self.errors = []
 
     def on_task_start(self):
         self.start_time = datetime.now(timezone.utc)
         with self.engine.begin() as conn:
             conn.execute(
-                sa.insert(task_runs_table).values(
-                    {"task_name": self.name, "started": self.start_time}
+                sa.insert(self.db.task_runs_table).values(
+                    task_name=self.name, 
+                    started=self.start_time
                 )
             )
         if send_to := self._event_alerts("start"):
@@ -107,12 +102,10 @@ class TaskLogger:
     def on_task_error(self, error: Exception):
         self.errors.append(error)
         with self.engine.begin() as conn:
-            statement = sa.insert(task_errors_table).values(
-                {
-                    "task_name": self.name,
-                    "type": str(type(error)),
-                    "message": str(error),
-                }
+            statement = sa.insert(self.db.task_errors_table).values(
+                task_name=self.name,
+                type=str(type(error)),
+                message=str(error),
             )
             conn.execute(statement)
         if send_to := self._event_alerts("error"):
@@ -136,10 +129,10 @@ class TaskLogger:
         status = "success" if success else "failed"
         with self.engine.begin() as conn:
             conn.execute(
-                sa.update(task_runs_table)
+                sa.update(self.db.task_runs_table)
                 .where(
-                    task_runs_table.c.task_name == self.name,
-                    task_runs_table.c.started == self.start_time,
+                    self.db.task_runs_table.c.task_name == self.name,
+                    self.db.task_runs_table.c.started == self.start_time,
                 )
                 .values(
                     finished=finish_time,

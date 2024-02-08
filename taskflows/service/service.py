@@ -1,12 +1,3 @@
-"""Systemd units. 
-https://manpages.debian.org/testing/systemd/systemd.unit.5.en.html
-https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html
-Systemd conditions. https://manpages.debian.org/testing/systemd/systemd.unit.5.en.html
-Systemd timers. Reference:
-https://www.freedesktop.org/software/systemd/man/systemd.timer.html#Options.
-https://documentation.suse.com/smart/systems-management/html/systemd-working-with-timers/index.html
-"""
-
 import re
 from collections import defaultdict
 from dataclasses import asdict
@@ -19,10 +10,9 @@ from typing import Any, Dict, List, Literal, Optional, Sequence, Union
 
 import sqlalchemy as sa
 from pydantic import BaseModel
-from sqlalchemy.dialects.postgresql import insert
 
-from taskflows.db import engine_from_env, services_table
-from taskflows.utils import _SYSD_FILE_PREFIX, logger
+from taskflows.db import task_flows_db
+from taskflows.utils import _SYSTEMD_FILE_PREFIX, logger
 
 from .constraints import HardwareConstraint, SystemLoadConstraint
 from .schedule import Schedule
@@ -89,7 +79,7 @@ class Service(BaseModel):
 
     def create(self):
         logger.info("Creating service %s", self.name)
-        # create_missing_tables()
+        self._db = task_flows_db()
         self._write_timer_unit()
         self._write_service_unit()
         self._save_db_metadata()
@@ -131,15 +121,13 @@ class Service(BaseModel):
         name = data.pop("name")
         command = data.pop("command")
         schedule = data.pop("schedule", None)
-        statement = insert(services_table).values(
-            name=name, command=command, schedule=schedule, config=data
+        self._db.upsert(
+            self._db.services_table,
+            name=name,
+            command=command,
+            schedule=schedule,
+            config=data,
         )
-        on_conf_set = {c.name: c for c in statement.excluded}
-        statement = statement.on_conflict_do_update(
-            index_elements=services_table.primary_key.columns, set_=on_conf_set
-        )
-        with engine_from_env().begin() as conn:
-            conn.execute(statement)
 
     def _write_timer_unit(self):
         if not self.schedule:
@@ -231,7 +219,7 @@ class Service(BaseModel):
         systemd_dir.mkdir(parents=True, exist_ok=True)
         file = (
             systemd_dir
-            / f"{_SYSD_FILE_PREFIX}{self.name.replace(' ', '_')}.{unit_type}"
+            / f"{_SYSTEMD_FILE_PREFIX}{self.name.replace(' ', '_')}.{unit_type}"
         )
         if file.exists():
             logger.warning("Replacing existing unit: %s", file)
@@ -248,7 +236,7 @@ def enable_service(service: str):
     """
     for service_name in get_service_names(service):
         logger.info("Enabling service: %s", service_name)
-        user_systemctl("enable", "--now", f"{_SYSD_FILE_PREFIX}{service_name}.timer")
+        user_systemctl("enable", "--now", f"{_SYSTEMD_FILE_PREFIX}{service_name}.timer")
 
 
 def run_service(service: str):
@@ -303,11 +291,11 @@ def remove_service(service: str):
     Args:
         service (str): Name or name pattern of service(s) to remove.
     """
-    engine = engine_from_env()
+    db = task_flows_db()
     for service_name in get_service_names(service):
         logger.info("Removing service %s", service_name)
         disable_service(service_name)
-        files = list(systemd_dir.glob(f"{_SYSD_FILE_PREFIX}{service_name}.*"))
+        files = list(systemd_dir.glob(f"{_SYSTEMD_FILE_PREFIX}{service_name}.*"))
         srvs = {f.stem for f in files}
         for srv in srvs:
             logger.info("Cleaning cache and runtime directories: %s.", srv)
@@ -317,9 +305,11 @@ def remove_service(service: str):
             logger.info("Deleting %s", file)
             file.unlink()
         # remove from database.
-        with engine.begin() as conn:
+        with db.engine.begin() as conn:
             conn.execute(
-                sa.delete(services_table).where(services_table.c.name == service_name)
+                sa.delete(db.services_table).where(
+                    db.services_table.c.name == service_name
+                )
             )
 
 
@@ -365,9 +355,9 @@ def service_runs(match: Optional[str] = None) -> Dict[str, Dict[str, str]]:
 
 def get_service_names(match: Optional[str] = None) -> List[str]:
     """Get names of all services."""
-    srvs = {f.stem for f in systemd_dir.glob(f"{_SYSD_FILE_PREFIX}*")}
+    srvs = {f.stem for f in systemd_dir.glob(f"{_SYSTEMD_FILE_PREFIX}*")}
     names = [
-        re.search(re.escape(_SYSD_FILE_PREFIX) + r"(.*)$", s).group(1) for s in srvs
+        re.search(re.escape(_SYSTEMD_FILE_PREFIX) + r"(.*)$", s).group(1) for s in srvs
     ]
     if match:
         names = [n for n in names if fnmatch(n, match)]
@@ -398,6 +388,6 @@ def user_systemctl(*args):
 
 
 def service_cmd(service_name: str, command: str):
-    if not service_name.startswith(_SYSD_FILE_PREFIX):
-        service_name = f"{_SYSD_FILE_PREFIX}{service_name}"
+    if not service_name.startswith(_SYSTEMD_FILE_PREFIX):
+        service_name = f"{_SYSTEMD_FILE_PREFIX}{service_name}"
     user_systemctl(command, service_name)

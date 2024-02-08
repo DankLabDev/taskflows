@@ -12,7 +12,8 @@ from rich import box
 from rich.console import Console
 from rich.table import Table
 
-from .db import engine_from_env, services_table, task_runs_table
+from .db import task_flows_db
+
 from .service import (
     Service,
     disable_service,
@@ -24,7 +25,7 @@ from .service import (
     service_runs,
     stop_service,
 )
-from .utils import _SYSD_FILE_PREFIX
+from .utils import _SYSTEMD_FILE_PREFIX
 
 cli = Group("taskflows", chain=True)
 
@@ -43,23 +44,24 @@ cli = Group("taskflows", chain=True)
 def history(limit: int, match: str = None):
     """Print task run history to console display."""
     # https://rich.readthedocs.io/en/stable/appendix/colors.html#appendix-colors
-
+    db = task_flows_db()
+    table = db.task_runs_table
     console = Console()
     column_color = table_column_colors()
-    task_names_query = sa.select(task_runs_table.c.task_name).distinct()
+    task_names_query = sa.select(table.c.task_name).distinct()
     if match:
         task_names_query = task_names_query.where(
-            task_runs_table.c.task_name.like(f"%{match}%")
+            table.c.task_name.like(f"%{match}%")
         )
     query = (
-        sa.select(task_runs_table)
-        .where(task_runs_table.c.task_name.in_(task_names_query))
-        .order_by(task_runs_table.c.started.desc(), task_runs_table.c.task_name)
+        sa.select(table)
+        .where(table.c.task_name.in_(task_names_query))
+        .order_by(table.c.started.desc(), table.c.task_name)
     )
     if limit:
         query = query.limit(limit)
-    columns = [c.name.replace("_", " ").title() for c in task_runs_table.columns]
-    with engine_from_env().begin() as conn:
+    columns = [c.name.replace("_", " ").title() for c in table.columns]
+    with task_flows_db().engine.begin() as conn:
         rows = [dict(zip(columns, row)) for row in conn.execute(query).fetchall()]
     table = Table(title="Task History", box=box.SIMPLE)
     if all(row["Return Value"] is None for row in rows):
@@ -76,8 +78,9 @@ def history(limit: int, match: str = None):
 @cli.command(name="list")
 def list_services():
     """List services."""
-    with engine_from_env().begin() as conn:
-        services = conn.execute(sa.select(services_table)).fetchall()
+    db = task_flows_db()
+    with db.engine.begin() as conn:
+        services = conn.execute(sa.select(db.services_table)).fetchall()
         services = [dict(s._mapping) for s in services]
     services = [{k: v for k, v in s.items() if v is not None} for s in services]
     if services:
@@ -113,7 +116,9 @@ def running():
 @click.argument("service_name")
 def logs(service_name: str):
     """Show logs for a service."""
-    subprocess.run(f"journalctl --user -f -u {_SYSD_FILE_PREFIX}{service_name}".split())
+    subprocess.run(
+        f"journalctl --user -f -u {_SYSTEMD_FILE_PREFIX}{service_name}".split()
+    )
 
 
 @cli.command()
@@ -279,11 +284,11 @@ def table_column_colors():
 
 
 def _service_schedules_table(running_only: bool, match: str = None) -> Table:
+    db = task_flows_db()
     service_names = get_service_names(match)
-    query = sa.select(services_table.c.name, services_table.c.schedule).where(
-        services_table.c.name.in_(service_names)
-    )
-    with engine_from_env().begin() as conn:
+    table = db.services_table
+    query = sa.select(table.c.name, table.c.schedule).where(table.c.name.in_(service_names))
+    with db.engine.begin() as conn:
         srv_schedules = dict(conn.execute(query).fetchall())
     srv_runs = service_runs(match)
     if running_only:

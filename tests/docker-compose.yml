@@ -1,0 +1,14 @@
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: test
+      POSTGRES_PASSWORD: test
+      POSTGRES_DB: test
+  taskflows_test:
+    build:
+      context: ..
+      dockerfile: tests/Dockerfile
+    depends_on:
+      - postgres
+    command: pytest --pg-url postgresql://test:test@postgres/test

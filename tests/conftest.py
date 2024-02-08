@@ -1,8 +1,9 @@
 import pytest
 
-from taskflows.db import create_missing_tables
 
-
-@pytest.fixture
-def tables():
-    create_missing_tables()
+def pytest_addoption(parser):
+    parser.addoption(
+        "--pg-url",
+        action="store",
+        help="URL to a PostgreSQL database that should be used for testing. A temporary schema will be created in this database.",
+    )

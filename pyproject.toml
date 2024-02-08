@@ -25,7 +25,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["black", "pytest", "pytest-asyncio", "psycopg>=3.0.0"]
+dev = ["black", "pytest", "pytest-asyncio", "psycopg[binary]"]
 
 [build-system]
 requires = ["setuptools>=43.0.0", "setuptools-scm", "wheel"]
