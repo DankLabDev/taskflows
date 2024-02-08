@@ -48,7 +48,7 @@ Tasks can send alerts via Slack and/or Email, as shown in the above example. Tas
 Services run commands on a specified schedule. See [Service](taskflows/service/service.py#35) for service configuration options.   
 To create the service(s), use the `create` method (e.g. `srv.create()`), or use the CLI `create` command (e.g. `taskflows create my_services.py`)
 
-#### Examples
+### Examples
 ```python
 from taskflows import Calendar, Service
 ```
