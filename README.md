@@ -1,13 +1,14 @@
 
-## Python Task Management, Scheduling, and Alerting.
+## Task Management, Scheduling, and Alerting.
 
 Admin commands are accessed via the `taskflows` command line tool. See `taskflows --help` for complete usage.  
 
 ### Setup
-`pip install taskflows`   
+```bash
+pip install taskflows
+``` 
 
-Task execution metadata is stored in Postgresql. Set environment variable `TASKFLOWS_DB` to the URL of the Postgresql instance you would like to use.
-
+Task execution metadata is stored in SQLite (default) or Postgresql. To use a personal database, set environment variable `TASKFLOWS_DB` to your database URL.   
 
 ### Create Tasks
 Turn any function (optionally async) into a task that logs metadata to the database and sends alerts, allows retries, etc..
