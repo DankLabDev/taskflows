@@ -8,6 +8,7 @@ import sqlalchemy as sa
 
 from taskflows.utils import logger
 
+
 @lru_cache
 def task_flows_db():
     class TaskflowsDB:
@@ -39,6 +40,9 @@ def task_flows_db():
                 from sqlalchemy.dialects.sqlite import JSON, insert
             elif dialect == "postgresql":
                 from sqlalchemy.dialects.postgresql import JSON, insert
+
+                if not schema_name:
+                    schema_name = "taskflows"
             else:
                 raise ValueError(f"Unsupported database dialect: {dialect}")
             logger.info("Using database: %s", db_url)

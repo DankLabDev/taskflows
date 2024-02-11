@@ -46,9 +46,10 @@ Tasks can send alerts via Slack and/or Email, as shown in the above example. Tas
 
 ### Create Services
 *Note: To use services, your system must have systemd (the init system on most modern Linux distributions)*    
-Services run commands on a specified schedule. See [Service](taskflows/service/service.py#35) for service configuration options.    
-To create the service(s), use the `create` method (e.g. `srv.create()`), or use the CLI `create` command (e.g. `taskflows create my_services.py`)   
 
+Services run commands on a specified schedule. See [Service](taskflows/service/service.py#35) for service configuration options.    
+
+To create the service(s), use the `create` method (e.g. `srv.create()`), or use the CLI `create` command (e.g. `taskflows create my_services.py`)   
 
 ### Examples
 ```python
