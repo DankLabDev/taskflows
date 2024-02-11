@@ -8,7 +8,7 @@ Admin commands are accessed via the `taskflows` command line tool. See `taskflow
 pip install taskflows
 ``` 
 
-Task execution metadata is stored in SQLite (default) or Postgresql. To use a personal database, set environment variable `TASKFLOWS_DB` to your database URL.   
+Task execution metadata is stored in SQLite (default) or Postgresql. To use a personal database, set environment variable `TASKFLOWS_DB_URL` to your database URL. If using Postgresql, TASKFLOWS_DB_SCHEMA may also be set to use a custom schema.   
 
 ### Create Tasks
 Turn any function (optionally async) into a task that logs metadata to the database and sends alerts, allows retries, etc..
@@ -45,8 +45,10 @@ async def hello():
 Tasks can send alerts via Slack and/or Email, as shown in the above example. Task start/finish times, status, retry count, return values can be found in the `task_runs` table. Any errors that occurred during the execution of a task can be found in the `task_errors` table.
 
 ### Create Services
-Services run commands on a specified schedule. See [Service](taskflows/service/service.py#35) for service configuration options.   
-To create the service(s), use the `create` method (e.g. `srv.create()`), or use the CLI `create` command (e.g. `taskflows create my_services.py`)
+*Note: To use services, your system must have systemd (the init system on most modern Linux distributions)*    
+Services run commands on a specified schedule. See [Service](taskflows/service/service.py#35) for service configuration options.    
+To create the service(s), use the `create` method (e.g. `srv.create()`), or use the CLI `create` command (e.g. `taskflows create my_services.py`)   
+
 
 ### Examples
 ```python
