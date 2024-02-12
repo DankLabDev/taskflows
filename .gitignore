@@ -83,3 +83,4 @@ cython_debug/
 .DS_Store/
 
 tests/main.py
+tests/t.ipynb

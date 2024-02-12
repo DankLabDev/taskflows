@@ -1,11 +1,9 @@
 import pytest
-from task_flows.database.core import create_missing_tables
 
 
-@pytest.fixture
-def tables():
-    try:
-        create_missing_tables()
-    except SystemExit:
-        # command line tool will exit with exit(0)
-        pass
+def pytest_addoption(parser):
+    parser.addoption(
+        "--pg-url",
+        action="store",
+        help="URL to a PostgreSQL database that should be used for testing. A temporary schema will be created in this database.",
+    )

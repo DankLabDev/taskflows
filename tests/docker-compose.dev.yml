@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: test
+      POSTGRES_PASSWORD: test
+      POSTGRES_DB: test
+  taskflows_dev:
+    build:
+      context: ..
+      dockerfile: tests/Dockerfile
+    depends_on:
+      - postgres
+    volumes:
+      - ..:/opt/taskflows
+    init: true
+    tty: true
+    command: bash
+    
