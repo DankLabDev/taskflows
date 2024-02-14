@@ -355,6 +355,7 @@ def service_runs(match: Optional[str] = None) -> Dict[str, Dict[str, str]]:
 
 def get_service_names(match: Optional[str] = None) -> List[str]:
     """Get names of all services."""
+    # TODO save in private sqlite db.
     srvs = {f.stem for f in systemd_dir.glob(f"{_SYSTEMD_FILE_PREFIX}*")}
     names = [
         re.search(re.escape(_SYSTEMD_FILE_PREFIX) + r"(.*)$", s).group(1) for s in srvs
