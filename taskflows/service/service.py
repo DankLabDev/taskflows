@@ -76,6 +76,7 @@ class Service(BaseModel):
     timeout: Optional[int] = None
     env_file: Optional[str] = None
     env: Optional[Dict[str, str]] = None
+    working_directory: Optional[Union[str, Path]] = None
 
     def create(self):
         logger.info("Creating service %s", self.name)
@@ -107,7 +108,10 @@ class Service(BaseModel):
         data = self.model_dump()
         if self.schedule:
             data["schedule"] = asdict(self.schedule)
-        return {k: v for k, v in data.items() if v is not None}
+        data = {k: v for k, v in data.items() if v is not None}
+        if "working_directory" in data:
+            data["working_directory"] = str(data["working_directory"])
+        return data
 
     def _join_values(self, values: Any):
         if isinstance(values, str):
@@ -150,7 +154,9 @@ class Service(BaseModel):
 
     def _write_service_unit(self):
         # TODO systemd-escape command
-        unit = set()
+        unit, service = set(), set()
+        if self.working_directory:
+            service.add(f"WorkingDirectory={self.working_directory}")
         if self.description:
             unit.add(f"Description={self.description}")
         if self.start_after:
@@ -208,6 +214,7 @@ class Service(BaseModel):
             "[Service]",
             "Type=simple",
             f"ExecStart={self.command}",
+            *service,
             "[Unit]",
             *unit,
             "[Install]",
