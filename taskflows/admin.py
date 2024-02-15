@@ -13,7 +13,6 @@ from rich.console import Console
 from rich.table import Table
 
 from .db import task_flows_db
-
 from .service import (
     Service,
     disable_service,
@@ -50,9 +49,7 @@ def history(limit: int, match: str = None):
     column_color = table_column_colors()
     task_names_query = sa.select(table.c.task_name).distinct()
     if match:
-        task_names_query = task_names_query.where(
-            table.c.task_name.like(f"%{match}%")
-        )
+        task_names_query = task_names_query.where(table.c.task_name.like(f"%{match}%"))
     query = (
         sa.select(table)
         .where(table.c.task_name.in_(task_names_query))
@@ -287,7 +284,9 @@ def _service_schedules_table(running_only: bool, match: str = None) -> Table:
     db = task_flows_db()
     service_names = get_service_names(match)
     table = db.services_table
-    query = sa.select(table.c.name, table.c.schedule).where(table.c.name.in_(service_names))
+    query = sa.select(table.c.name, table.c.schedule).where(
+        table.c.name.in_(service_names)
+    )
     with db.engine.begin() as conn:
         srv_schedules = dict(conn.execute(query).fetchall())
     srv_runs = service_runs(match)
@@ -312,9 +311,9 @@ def _service_schedules_table(running_only: bool, match: str = None) -> Table:
         if len(sched) == 1:
             sched = list(sched.values())[0]
         else:
-            sched = ",".join(f"{k}:{v}" for k, v in sched)
+            sched = ",".join(f"{k}:{v}" for k, v in sched.items())
         runs = srv_runs.get(srv_name, {})
         table.add_row(
-            srv_name, sched, runs.get("Next Run", {}), runs.get("Last Run", {})
+            srv_name, sched, runs.get("Next Run", ""), runs.get("Last Run", "")
         )
     return table

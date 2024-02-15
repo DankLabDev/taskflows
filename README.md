@@ -18,7 +18,6 @@ alerts=[
         send_to=[   
             Slack(
                 bot_token=os.getenv("SLACK_BOT_TOKEN"),
-                app_token=os.getenv("SLACK_APP_TOKEN"),
                 channel="critical_alerts"
             ),
             Email(

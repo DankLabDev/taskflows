@@ -286,7 +286,9 @@ def disable_service(service: str):
         service (str): Name or name pattern of service(s) to disable.
     """
     for service_name in get_service_names(service):
-        user_systemctl("disable", "--now", service_name)
+        user_systemctl(
+            "disable", "--now", f"{_SYSTEMD_FILE_PREFIX}{service_name}.timer"
+        )
         logger.info("Stopped and disabled service: %s", service_name)
     # remove any failed status caused by stopping service.
     user_systemctl("reset-failed")
@@ -369,6 +371,11 @@ def get_service_names(match: Optional[str] = None) -> List[str]:
     ]
     if match:
         names = [n for n in names if fnmatch(n, match)]
+    if not names:
+        if match:
+            logger.error("No service found matching: %s", match)
+        else:
+            logger.error("No service found")
     return names
 
 

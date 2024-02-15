@@ -85,8 +85,7 @@ class TaskLogger:
         with self.engine.begin() as conn:
             conn.execute(
                 sa.insert(self.db.task_runs_table).values(
-                    task_name=self.name, 
-                    started=self.start_time
+                    task_name=self.name, started=self.start_time
                 )
             )
         if send_to := self._event_alerts("start"):
@@ -97,7 +96,7 @@ class TaskLogger:
                     content_type=ContentType.IMPORTANT,
                 )
             ]
-            send_alert(components=components, send_to=send_to)
+            send_alert(content=components, send_to=send_to)
 
     def on_task_error(self, error: Exception):
         self.errors.append(error)
@@ -117,7 +116,7 @@ class TaskLogger:
                     content_type=ContentType.ERROR,
                 )
             ]
-            send_alert(components=components, send_to=send_to, subject=subject)
+            send_alert(content=components, send_to=send_to, subject=subject)
 
     def on_task_finish(
         self,
@@ -175,7 +174,7 @@ class TaskLogger:
                             content_type=ContentType.INFO,
                         )
                     )
-            send_alert(components=components, send_to=send_to)
+            send_alert(content=components, send_to=send_to)
         if self.errors and self.required:
             if self.exit_on_complete:
                 sys.exit(1)
