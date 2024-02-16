@@ -137,7 +137,6 @@ class TaskLogger:
                     finished=finish_time,
                     retries=retries,
                     status=status,
-                    return_value=return_value,
                 )
             )
         if send_to := self._event_alerts("finish"):
