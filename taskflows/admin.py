@@ -113,6 +113,7 @@ def running():
 @click.argument("service_name")
 def logs(service_name: str):
     """Show logs for a service."""
+    click.echo(click.style(f"Run `journalctl --user -r -u {_SYSTEMD_FILE_PREFIX}{service_name}` for more.", fg="yellow"))
     subprocess.run(
         f"journalctl --user -f -u {_SYSTEMD_FILE_PREFIX}{service_name}".split()
     )
