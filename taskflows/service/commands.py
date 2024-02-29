@@ -7,10 +7,12 @@ from dynamic_imports import import_module_attr
 
 
 def mamba_command(env_name: str, command: str) -> str:
-    mamba_exe = Path.home().joinpath("mambaforge", "bin", "mamba")
-    if not mamba_exe.is_file():
-        raise FileNotFoundError(f"mamba executable not found: {mamba_exe}")
-    return f"bash -c '{mamba_exe} run -n {env_name} {command}'"
+    """Generate mamba command."""
+    for dist_t in ("mambaforge", "miniforge3"):
+        mamba_exe = Path.home().joinpath(dist_t, "bin", "mamba")
+        if mamba_exe.is_file():
+            return f"bash -c '{mamba_exe} run -n {env_name} {command}'"
+    raise FileNotFoundError("mamba executable not found!")
 
 
 def func_call(func: Callable, *args, **kwargs) -> str:
