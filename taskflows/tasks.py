@@ -93,7 +93,7 @@ class TaskLogger:
                 Text(
                     f"{Emoji.rocket} Starting: {self.name}",
                     font_size=FontSize.LARGE,
-                    content_type=ContentType.IMPORTANT,
+                    level=ContentType.IMPORTANT,
                 )
             ]
             send_alert(content=components, send_to=send_to)
@@ -113,7 +113,7 @@ class TaskLogger:
                 Text(
                     f"{Emoji.red_x} {subject}: {error}",
                     font_size=FontSize.LARGE,
-                    content_type=ContentType.ERROR,
+                    level=ContentType.ERROR,
                 )
             ]
             send_alert(content=components, send_to=send_to, subject=subject)
@@ -144,9 +144,7 @@ class TaskLogger:
                 Text(
                     f"{Emoji.green_check if success else Emoji.red_x} {self.name} {self.start_time} - {finish_time} ({finish_time-self.start_time})",
                     font_size=FontSize.LARGE,
-                    content_type=(
-                        ContentType.IMPORTANT if success else ContentType.ERROR
-                    ),
+                    level=(ContentType.IMPORTANT if success else ContentType.ERROR),
                 )
             ]
             if return_value is not None:
@@ -154,7 +152,7 @@ class TaskLogger:
                     Text(
                         f"Result: {return_value}",
                         font_size=FontSize.MEDIUM,
-                        content_type=ContentType.IMPORTANT,
+                        level=ContentType.IMPORTANT,
                     )
                 )
             if self.errors:
@@ -162,7 +160,7 @@ class TaskLogger:
                     Text(
                         f"ERRORS{Emoji.red_exclamation}",
                         font_size=FontSize.LARGE,
-                        content_type=ContentType.ERROR,
+                        level=ContentType.ERROR,
                     )
                 )
                 for e in self.errors:
@@ -170,7 +168,7 @@ class TaskLogger:
                         Text(
                             f"{type(e)}: {e}",
                             font_size=FontSize.MEDIUM,
-                            content_type=ContentType.INFO,
+                            level=ContentType.INFO,
                         )
                     )
             send_alert(content=components, send_to=send_to)
