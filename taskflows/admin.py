@@ -61,8 +61,6 @@ def history(limit: int, match: str = None):
     with task_flows_db().engine.begin() as conn:
         rows = [dict(zip(columns, row)) for row in conn.execute(query).fetchall()]
     table = Table(title="Task History", box=box.SIMPLE)
-    if all(row["Return Value"] is None for row in rows):
-        columns.remove("Return Value")
     if all(row["Retries"] == 0 for row in rows):
         columns.remove("Retries")
     for c in columns:
