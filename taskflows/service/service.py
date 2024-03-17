@@ -191,13 +191,13 @@ class Service(BaseModel):
                 f"StopPropagatedFrom={self._join_values(self.propagate_stop_from)}"
             )
         if self.timeout:
-            unit.add(f"RuntimeMaxSec={self.timeout}")
+            service.add(f"RuntimeMaxSec={self.timeout}")
         if self.env_file:
-            unit.add(f"EnvironmentFile={self.env_file}")
+            service.add(f"EnvironmentFile={self.env_file}")
         if self.env:
             # TODO is this correct syntax?
             env = ",".join([f"{k}={v}" for k, v in self.env.items()])
-            unit.add(f"Environment={env}")
+            service.add(f"Environment={env}")
         if self.hardware_constraints:
             if isinstance(self.hardware_constraints, (list, tuple)):
                 for hc in self.hardware_constraints:
