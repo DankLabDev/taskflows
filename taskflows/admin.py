@@ -301,6 +301,7 @@ def _service_schedules_table(running_only: bool, match: str = None) -> Table:
             for srv_name, sched in srv_schedules.items()
             if srv_name in srv_runs
         }
+    srv_schedules = {k: v for k,v in srv_schedules.items() if v}
     if not srv_schedules:
         return
     table = Table(box=box.SIMPLE)
