@@ -284,7 +284,8 @@ def _service_schedules_table(running_only: bool, match: str = None) -> Table:
     service_names = get_service_names(match)
     table = db.services_table
     query = sa.select(table.c.name, table.c.schedule).where(
-        table.c.name.in_(service_names)
+        table.c.name.in_(service_names),
+        table.c.schedule.isnot(None),
     )
     with db.engine.begin() as conn:
         srv_schedules = dict(conn.execute(query).fetchall())
