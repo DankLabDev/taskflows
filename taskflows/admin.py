@@ -1,7 +1,7 @@
 import subprocess
 from functools import lru_cache
 from itertools import cycle
-from pprint import pformat
+from pprint import pformat, pprint
 from typing import Optional, Tuple
 
 import click
@@ -23,6 +23,7 @@ from .service import (
     run_service,
     service_runs,
     stop_service,
+    service_cmd
 )
 from .utils import _SYSTEMD_FILE_PREFIX
 
@@ -70,6 +71,15 @@ def history(limit: int, match: str = None):
     console.print(table, justify="center")
 
 
+@cli.command
+@click.argument("service_name")
+def status(service_name: str):
+    """Get status of service."""
+    proc = service_cmd(service_name=service_name, command="status")
+    pprint(proc.stderr.decode().split('\n'))
+    pprint(proc.stdout.decode().split('\n'))
+    
+
 @cli.command(name="list")
 def list_services():
     """List services."""
@@ -105,6 +115,8 @@ def running():
         Console().print(table, justify="center")
     else:
         click.echo(click.style("No services running.", fg="yellow"))
+
+
 
 
 @cli.command()
@@ -294,7 +306,7 @@ def _service_schedules_table(running_only: bool, match: str = None) -> Table:
         srv_runs = {
             srv_name: runs
             for srv_name, runs in srv_runs.items()
-            if runs["Last Run"].endswith("(running)")
+            if runs.get("Last Run","").endswith("(running)")
         }
         srv_schedules = {
             srv_name: sched

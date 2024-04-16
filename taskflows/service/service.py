@@ -79,6 +79,9 @@ class Service(BaseModel):
     env: Optional[Dict[str, str]] = None
     working_directory: Optional[Union[str, Path]] = None
 
+    class Config:
+        arbitrary_types_allowed=True
+
     def create(self):
         logger.info("Creating service %s", self.name)
         self._db = task_flows_db()
@@ -340,29 +343,19 @@ def service_runs(match: Optional[str] = None) -> Dict[str, Dict[str, str]]:
     for info in parse_systemctl_tables(
         "systemctl --user list-units --type=service".split()
     ):
-        if task_name := re.search(r"^taskflow_([\w-]+)\.service", info["UNIT"]):
-            if info["ACTIVE"] == "active":
-                srv_runs[task_name.group(1)]["Last Run"] += " (running)"
+        task_name = re.search(r"^taskflow_([\w-]+)\.service", info["UNIT"])
+        if task_name and info["ACTIVE"] == "active":
+            if "Last Run" in (d := srv_runs[task_name.group(1)]):
+                d["Last Run"] += " (running)"
     if match:
         srv_runs = {k: v for k, v in srv_runs.items() if fnmatch(k, match)}
-    srv_runs = dict(
-        sorted(
-            srv_runs.items(),
-            key=lambda row: (
-                time()
-                if (
-                    "(running)" in row[1]["Last Run"]
-                    or not (
-                        dt := re.search(
-                            r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", row[1]["Last Run"]
-                        )
-                    )
-                )
-                else datetime.fromisoformat(dt.group(0)).timestamp()
-            ),
-        )
-    )
-    return srv_runs
+    def sort_key(row):
+        data = row[1]
+        if not (last_run := data.get("Last Run")) or "(running)" in last_run:
+            return time()
+        dt = re.search(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}",last_run)
+        return datetime.fromisoformat(dt.group(0)).timestamp()
+    return dict(sorted(srv_runs.items(),key=sort_key))
 
 
 def get_service_names(match: Optional[str] = None) -> List[str]:
@@ -408,4 +401,4 @@ def user_systemctl(*args):
 def service_cmd(service_name: str, command: str):
     if not service_name.startswith(_SYSTEMD_FILE_PREFIX):
         service_name = f"{_SYSTEMD_FILE_PREFIX}{service_name}"
-    user_systemctl(command, service_name)
+    return user_systemctl(command, service_name)

@@ -20,4 +20,5 @@ from .service import (
     run_service,
     service_runs,
     stop_service,
+    service_cmd
 )
