@@ -10,11 +10,11 @@ from typing import Any, Dict, List, Literal, Optional, Sequence, Union
 
 import sqlalchemy as sa
 from pydantic import BaseModel
-
 from taskflows.db import task_flows_db
 from taskflows.utils import _SYSTEMD_FILE_PREFIX, logger
 
 from .constraints import HardwareConstraint, SystemLoadConstraint
+from .docker import DockerContainer
 from .schedule import Schedule
 
 systemd_dir = Path.home().joinpath(".config", "systemd", "user")
@@ -25,6 +25,7 @@ ServiceNames = Optional[Union[str, Sequence[str]]]
 class Service(BaseModel):
     name: str
     command: str
+    container: Optional[DockerContainer] = None
     description: Optional[str] = None
     schedule: Optional[Union[Schedule, Sequence[Schedule]]] = None
     hardware_constraints: Optional[
@@ -41,8 +42,8 @@ class Service(BaseModel):
     # If the listed units fail to start, this unit will still be started anyway. Multiple units may be specified.
     wants: Optional[ServiceNames] = None
     # Configures dependencies similar to `Wants`, but as long as this unit is up,
-    # all units listed in `Upholds` are started whenever found to be inactive or failed,
-    # and no job is queued for them. While a Wants= dependency on another unit has a one-time effect when this units started,
+    # all units listed in `Upholds` are started whenever found to be inactive or failed, and no job is queued for them.
+    # While a Wants= dependency on another unit has a one-time effect when this units started,
     # a `Upholds` dependency on it has a continuous effect, constantly restarting the unit if necessary.
     # This is an alternative to the Restart= setting of service units, to ensure they are kept running whatever happens.
     upholds: Optional[ServiceNames] = None
@@ -81,6 +82,8 @@ class Service(BaseModel):
     def create(self):
         logger.info("Creating service %s", self.name)
         self._db = task_flows_db()
+        if self.container:
+            self.container.create()
         self._write_timer_unit()
         self._write_service_unit()
         self._save_db_metadata()
