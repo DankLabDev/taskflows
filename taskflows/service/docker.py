@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Sequence, Union
 
 from dotenv import dotenv_values
-from task_flows.utils import logger
+from taskflows.utils import logger
 from xxhash import xxh32
 
 import docker
