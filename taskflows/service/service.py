@@ -28,6 +28,16 @@ class Service(BaseModel):
     container: Optional[DockerContainer] = None
     description: Optional[str] = None
     schedule: Optional[Union[Schedule, Sequence[Schedule]]] = None
+    restart_policy: Optional[
+        Literal[
+            "always",
+            "on-success",
+            "on-failure",
+            "on-abnormal",
+            "on-abort",
+            "on-watchdog",
+        ]
+    ] = None
     hardware_constraints: Optional[
         Union[HardwareConstraint, Sequence[HardwareConstraint]]
     ] = None
@@ -80,7 +90,7 @@ class Service(BaseModel):
     working_directory: Optional[Union[str, Path]] = None
 
     class Config:
-        arbitrary_types_allowed=True
+        arbitrary_types_allowed = True
 
     def create(self):
         logger.info("Creating service %s", self.name)
@@ -163,6 +173,8 @@ class Service(BaseModel):
         unit, service = set(), set()
         if self.working_directory:
             service.add(f"WorkingDirectory={self.working_directory}")
+        if self.restart_policy:
+            service.add(f"Restart={self.restart_policy}")
         if self.description:
             unit.add(f"Description={self.description}")
         if self.start_after:
@@ -349,13 +361,15 @@ def service_runs(match: Optional[str] = None) -> Dict[str, Dict[str, str]]:
                 d["Last Run"] += " (running)"
     if match:
         srv_runs = {k: v for k, v in srv_runs.items() if fnmatch(k, match)}
+
     def sort_key(row):
         data = row[1]
         if not (last_run := data.get("Last Run")) or "(running)" in last_run:
             return time()
-        dt = re.search(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}",last_run)
+        dt = re.search(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", last_run)
         return datetime.fromisoformat(dt.group(0)).timestamp()
-    return dict(sorted(srv_runs.items(),key=sort_key))
+
+    return dict(sorted(srv_runs.items(), key=sort_key))
 
 
 def get_service_names(match: Optional[str] = None) -> List[str]:
