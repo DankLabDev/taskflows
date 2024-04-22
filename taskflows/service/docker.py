@@ -3,14 +3,14 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Sequence, Union
 
-from dotenv import dotenv_values
-from taskflows.utils import logger
-from xxhash import xxh32
-
 import docker
 from docker.errors import ImageNotFound
 from docker.models.containers import Container
 from docker.models.images import Image
+from dotenv import dotenv_values
+from xxhash import xxh32
+
+from taskflows.utils import logger
 
 
 @lru_cache
@@ -40,7 +40,7 @@ class DockerImage:
     # Directory that docker build command should be ran in.
     path: str
     # path to Dockerfile relative to `path`.
-    dockerfile: str
+    dockerfile: str = "Dockerfile"
     # Whether to return the status
     quiet: bool = False
     # Do not use the cache when set to True.
@@ -311,7 +311,7 @@ class DockerContainer:
     # An integer value containing the score given
     # to the container in order to tune OOM killer preferences.
     oom_score_adj: Optional[int] = None
-    # If set to, use the host PID namespace
+    # If set to, use the host PID
     # inside the container.
     pid_mode: Optional[str] = None
     # Tune a containeras pids limit. Setfor
@@ -391,13 +391,6 @@ class DockerContainer:
     working_dir: Optional[str] = None
 
     def __post_init__(self):
-        if self.name is None:
-            if isinstance(self.image, DockerImage):
-                img_name = self.image.name
-            else:
-                img_name = self.image.split("/")[-1].split(":")[0]
-            command_id = xxh32(self.command).hexdigest()
-            self.name = f"{img_name}-{command_id}"
         if isinstance(self.volumes, Volume):
             self.volumes = [self.volumes]
         if isinstance(self.ulimits, Ulimit):
@@ -413,6 +406,15 @@ class DockerContainer:
         Returns:
             Container: The created Docker container.
         """
+        # create default container name if one wasn't assigned.
+        if self.name is None:
+            if isinstance(self.image, DockerImage):
+                img_name = self.image.tag
+            else:
+                img_name = self.image.split("/")[-1].split(":")[0]
+            command_id = xxh32(self.command).hexdigest()
+            self.name = f"{img_name}-{command_id}"
+
         # remove any existing container with this name.
         self.delete()
         # if image is not build, it must be built.
