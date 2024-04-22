@@ -96,6 +96,14 @@ class Service(BaseModel):
         logger.info("Creating service %s", self.name)
         self._db = task_flows_db()
         if self.container:
+            if not self.container.name:
+                logger.info("Setting container name to service name: %s", self.name)
+                self.container.name = self.name
+            else:
+                logger.warning(
+                    "Container name is already set. Will not change: %s",
+                    self.container.name,
+                )
             self.container.create()
         self._write_timer_unit()
         self._write_service_unit()
