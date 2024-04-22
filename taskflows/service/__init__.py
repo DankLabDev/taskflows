@@ -8,7 +8,7 @@ from .constraints import (
     MemoryPressure,
     SystemLoadConstraint,
 )
-from .docker import Container, ContainerLimits, Image, Ulimit, Volume
+from .docker import ContainerLimits, DockerContainer, DockerImage, Ulimit, Volume
 from .schedule import Calendar, Periodic, Schedule
 from .service import (
     Service,
@@ -18,7 +18,7 @@ from .service import (
     remove_service,
     restart_service,
     run_service,
+    service_cmd,
     service_runs,
     stop_service,
-    service_cmd
 )
