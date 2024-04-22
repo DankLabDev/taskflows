@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Literal, Optional, Sequence, Union
 
 import sqlalchemy as sa
 from pydantic import BaseModel
+
 from taskflows.db import task_flows_db
 from taskflows.utils import _SYSTEMD_FILE_PREFIX, logger
 
@@ -145,16 +146,11 @@ class Service(BaseModel):
         raise ValueError(f"Unexpected type for values: {type(values)}")
 
     def _save_db_metadata(self):
-        data = self.as_dict()
-        name = data.pop("name")
-        command = data.pop("command")
-        schedule = data.pop("schedule", None)
         self._db.upsert(
             self._db.services_table,
-            name=name,
-            command=command,
-            schedule=schedule,
-            config=data,
+            name=self.name,
+            command=self.command,
+            schedule=asdict(self.schedule),
         )
 
     def _write_timer_unit(self):
