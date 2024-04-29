@@ -11,7 +11,6 @@ from typing import Any, Dict, List, Literal, Optional, Sequence, Union
 import dbus
 from pydantic import BaseModel
 
-from taskflows.db import task_flows_db
 from taskflows.utils import _SYSTEMD_FILE_PREFIX, logger
 
 from .constraints import HardwareConstraint, SystemLoadConstraint
@@ -237,7 +236,7 @@ class Service(BaseModel):
             "[Unit]",
             *unit,
             "[Install]",
-            "WantedBy=multi-user.target",
+            "WantedBy=default.target",
         ]
         self._write_systemd_file("service", "\n".join(content))
 
