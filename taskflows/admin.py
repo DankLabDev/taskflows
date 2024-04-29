@@ -1,3 +1,4 @@
+import re
 import subprocess
 from functools import lru_cache
 from itertools import cycle
@@ -17,13 +18,14 @@ from .service import (
     Service,
     disable_service,
     enable_service,
-    get_service_names,
+    get_service_files,
+    get_timer_files,
     remove_service,
     restart_service,
-    run_service,
+    service_cmd,
     service_runs,
+    start_service,
     stop_service,
-    service_cmd
 )
 from .utils import _SYSTEMD_FILE_PREFIX
 
@@ -76,18 +78,15 @@ def history(limit: int, match: str = None):
 def status(service_name: str):
     """Get status of service."""
     proc = service_cmd(service_name=service_name, command="status")
-    pprint(proc.stderr.decode().split('\n'))
-    pprint(proc.stdout.decode().split('\n'))
-    
+    pprint(proc.stderr.decode().split("\n"))
+    pprint(proc.stdout.decode().split("\n"))
+    # manager.GetUnitFileState(service)
+
 
 @cli.command(name="list")
 def list_services():
     """List services."""
-    db = task_flows_db()
-    with db.engine.begin() as conn:
-        services = conn.execute(sa.select(db.services_table)).fetchall()
-        services = [dict(s._mapping) for s in services]
-    services = [{k: v for k, v in s.items() if v is not None} for s in services]
+    services = [f.name for f in get_service_files()]
     if services:
         click.echo(pformat(services))
     else:
@@ -117,13 +116,16 @@ def running():
         click.echo(click.style("No services running.", fg="yellow"))
 
 
-
-
 @cli.command()
 @click.argument("service_name")
 def logs(service_name: str):
     """Show logs for a service."""
-    click.echo(click.style(f"Run `journalctl --user -r -u {_SYSTEMD_FILE_PREFIX}{service_name}` for more.", fg="yellow"))
+    click.echo(
+        click.style(
+            f"Run `journalctl --user -r -u {_SYSTEMD_FILE_PREFIX}{service_name}` for more.",
+            fg="yellow",
+        )
+    )
     subprocess.run(
         f"journalctl --user -f -u {_SYSTEMD_FILE_PREFIX}{service_name}".split()
     )
@@ -211,13 +213,13 @@ def create(
 
 @cli.command()
 @click.argument("service")
-def run(service: str):
-    """Run service(s).
+def start(service: str):
+    """Start service(s).
 
     Args:
-        service (str): Name or name pattern of service(s) to run.
+        service (str): Name or name pattern of service(s) to start.
     """
-    run_service(service)
+    start_service(service)
     click.echo(click.style("Done!", fg="green"))
 
 
@@ -292,28 +294,28 @@ def table_column_colors():
 
 
 def _service_schedules_table(running_only: bool, match: str = None) -> Table:
-    db = task_flows_db()
-    service_names = get_service_names(match)
-    table = db.services_table
-    query = sa.select(table.c.name, table.c.schedule).where(
-        table.c.name.in_(service_names),
-        table.c.schedule.isnot(None),
-    )
-    with db.engine.begin() as conn:
-        srv_schedules = dict(conn.execute(query).fetchall())
+    timer_files = get_timer_files(match)
+    srv_schedules = {
+        re.search(r"^taskflow_([\w-]+)", f.stem)
+        .group(1): re.search(r"\[Timer\]((.|\n)+)\[", f.read_text(), re.MULTILINE)
+        .group(1)
+        .replace("Persistent=true", "")
+        .strip()
+        for f in timer_files
+    }
     srv_runs = service_runs(match)
     if running_only:
         srv_runs = {
             srv_name: runs
             for srv_name, runs in srv_runs.items()
-            if runs.get("Last Run","").endswith("(running)")
+            if runs.get("Last Run", "").endswith("(running)")
         }
         srv_schedules = {
             srv_name: sched
             for srv_name, sched in srv_schedules.items()
             if srv_name in srv_runs
         }
-    srv_schedules = {k: v for k,v in srv_schedules.items() if v}
+    srv_schedules = {k: v for k, v in srv_schedules.items() if v}
     if not srv_schedules:
         return
     table = Table(box=box.SIMPLE)
@@ -321,10 +323,6 @@ def _service_schedules_table(running_only: bool, match: str = None) -> Table:
     for col in ("Service", "Schedule", "Next Run", "Last Run"):
         table.add_column(col, style=column_color(col), justify="center")
     for srv_name, sched in srv_schedules.items():
-        if len(sched) == 1:
-            sched = list(sched.values())[0]
-        else:
-            sched = ",".join(f"{k}:{v}" for k, v in sched.items())
         runs = srv_runs.get(srv_name, {})
         table.add_row(
             srv_name, sched, runs.get("Next Run", ""), runs.get("Last Run", "")

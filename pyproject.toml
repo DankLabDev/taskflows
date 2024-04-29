@@ -1,6 +1,6 @@
 [project]
 name = "taskflows"
-version = "0.3.7"
+version = "0.4.0"
 description = "Python task management, scheduling, alerts."
 authors = [{ name = "Dan Kelleher", email = "kelleherjdan@gmail.com" }]
 license = { text = "MIT" }
@@ -23,6 +23,7 @@ dependencies = [
     "quicklogs>=1.1.0",
     "func-timeout>=4.0.0",
     "docker",
+    "dbus-python",
 ]
 
 [project.optional-dependencies]

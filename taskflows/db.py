@@ -56,13 +56,6 @@ class TaskflowsDB:
                 if not conn.dialect.has_schema(conn, schema_name):
                     logger.info("Creating schema '%s'", schema_name)
                     conn.execute(sa.schema.CreateSchema(schema_name))
-        self.services_table = sa.Table(
-            "services",
-            sa_meta,
-            sa.Column("name", sa.String, primary_key=True),
-            sa.Column("command", sa.String, default=True),
-            sa.Column("schedule", JSON),
-        )
         self.task_runs_table = sa.Table(
             "task_runs",
             sa_meta,
@@ -91,7 +84,6 @@ class TaskflowsDB:
             sa.Column("message", sa.String),
         )
         for table in (
-            self.services_table,
             self.task_runs_table,
             self.task_errors_table,
         ):

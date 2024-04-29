@@ -8,7 +8,7 @@ from subprocess import run
 from time import time
 from typing import Any, Dict, List, Literal, Optional, Sequence, Union
 
-import sqlalchemy as sa
+import dbus
 from pydantic import BaseModel
 
 from taskflows.db import task_flows_db
@@ -18,7 +18,14 @@ from .constraints import HardwareConstraint, SystemLoadConstraint
 from .docker import DockerContainer
 from .schedule import Schedule
 
+# bus = dbus.SystemBus()
+bus = dbus.SessionBus()
+systemd = bus.get_object("org.freedesktop.systemd1", "/org/freedesktop/systemd1")
+manager = dbus.Interface(systemd, "org.freedesktop.systemd1.Manager")
+
+
 systemd_dir = Path.home().joinpath(".config", "systemd", "user")
+# systemd_dir = Path("/etc/systemd/system")
 
 ServiceNames = Optional[Union[str, Sequence[str]]]
 
@@ -95,7 +102,6 @@ class Service(BaseModel):
 
     def create(self):
         logger.info("Creating service %s", self.name)
-        self._db = task_flows_db()
         if self.container:
             if not self.container.name:
                 logger.info("Setting container name to service name: %s", self.name)
@@ -108,14 +114,13 @@ class Service(BaseModel):
             self.container.create()
         self._write_timer_unit()
         self._write_service_unit()
-        self._save_db_metadata()
         self.enable()
 
     def enable(self):
         enable_service(self.name)
 
     def run(self):
-        run_service(self.name)
+        start_service(self.name)
 
     def stop(self):
         stop_service(self.name)
@@ -144,14 +149,6 @@ class Service(BaseModel):
         elif isinstance(values, (list, tuple)):
             return " ".join(values)
         raise ValueError(f"Unexpected type for values: {type(values)}")
-
-    def _save_db_metadata(self):
-        self._db.upsert(
-            self._db.services_table,
-            name=self.name,
-            command=self.command,
-            schedule=asdict(self.schedule),
-        )
 
     def _write_timer_unit(self):
         if not self.schedule:
@@ -263,20 +260,38 @@ def enable_service(service: str):
     Args:
         service (str): Name or name pattern of service(s) to restart.
     """
-    for service_name in get_service_names(service):
-        logger.info("Enabling service: %s", service_name)
-        user_systemctl("enable", "--now", f"{_SYSTEMD_FILE_PREFIX}{service_name}.timer")
+    for sf in get_service_files(service):
+        logger.info("Enabling service: %s", sf)
+        manager.EnableUnitFiles([str(sf)], True, True)
+        # user_systemctl("enable", "--now", f"{_SYSTEMD_FILE_PREFIX}{sf}.timer")
 
 
-def run_service(service: str):
-    """Run service(s).
-
-    Args:
-        service_name (str): Name or name pattern of service(s) to run.
+def is_service_enabled(service):
     """
-    for service_name in get_service_names(service):
-        logger.info("Running service: %s", service_name)
-        service_cmd(service_name, "start")
+    is_service_enabled method will check if service is already enabled that is passed in this method.
+    It raise exception if there is error.
+    Return value, True if service is already enabled otherwise False.
+
+    :param str service: name of the service
+    """
+    try:
+        return manager.GetUnitFileState(service) == "enabled"
+    except:
+        return False
+
+
+def start_service(service: str):
+    """
+    start method will start service that is passed in this method.
+    If service is already started then it will ignore it.
+    It raise exception if there is error
+
+    :param str service: name of the service
+    """
+    for sf in get_service_files(service):
+        logger.info("Running service: %s", sf)
+        # service_cmd(sf, "start")
+        manager.StartUnit(sf.name, "replace")
 
 
 def restart_service(service: str):
@@ -285,9 +300,10 @@ def restart_service(service: str):
     Args:
         service (str): Name or name pattern of service(s) to restart.
     """
-    for service_name in get_service_names(service):
-        logger.info("Restarting service: %s", service_name)
-        service_cmd(service_name, "restart")
+    for sf in get_service_files(service):
+        logger.info("Restarting service: %s", sf)
+        # service_cmd(sf, "restart")
+        manager.RestartUnit(sf.name, "replace")
 
 
 def stop_service(service: str):
@@ -296,9 +312,11 @@ def stop_service(service: str):
     Args:
         service (str): Name or name pattern of service(s) to stop.
     """
-    for service_name in get_service_names(service):
-        logger.info("Stopping service: %s", service_name)
-        service_cmd(service_name, "stop")
+    for sf in get_service_files(service):
+        logger.info("Stopping service: %s", sf)
+        # service_cmd(sf, "stop")
+        # TODO a way to not use sigkill?
+        manager.StopUnit(sf.name, "replace")
 
 
 def disable_service(service: str):
@@ -307,13 +325,16 @@ def disable_service(service: str):
     Args:
         service (str): Name or name pattern of service(s) to disable.
     """
-    for service_name in get_service_names(service):
-        user_systemctl(
-            "disable", "--now", f"{_SYSTEMD_FILE_PREFIX}{service_name}.timer"
-        )
-        logger.info("Stopped and disabled service: %s", service_name)
+    for sf in get_service_files(service):
+        # user_systemctl(
+        #    "disable", "--now", f"{_SYSTEMD_FILE_PREFIX}{sf}.timer"
+        # )
+        logger.info("Stopped and disabled service: %s", sf)
+        # file = systemd_dir / f"{_SYSTEMD_FILE_PREFIX}{sf}.timer"
+        manager.DisableUnitFiles([sf.name], False)
     # remove any failed status caused by stopping service.
-    user_systemctl("reset-failed")
+    # user_systemctl("reset-failed")
+    manager.Reload()
 
 
 def remove_service(service: str):
@@ -322,26 +343,19 @@ def remove_service(service: str):
     Args:
         service (str): Name or name pattern of service(s) to remove.
     """
-    db = task_flows_db()
-    for service_name in get_service_names(service):
-        logger.info("Removing service %s", service_name)
-        disable_service(service_name)
-        files = list(systemd_dir.glob(f"{_SYSTEMD_FILE_PREFIX}{service_name}.*"))
+    for sf in get_service_files(service):
+        logger.info("Removing service %s", sf)
+        disable_service(sf)
+        files = list(systemd_dir.glob(f"{_SYSTEMD_FILE_PREFIX}{sf}.*"))
         srvs = {f.stem for f in files}
         for srv in srvs:
             logger.info("Cleaning cache and runtime directories: %s.", srv)
+            # TODO python-dbus
             user_systemctl("clean", srv)
         # remove files.
         for file in files:
             logger.info("Deleting %s", file)
             file.unlink()
-        # remove from database.
-        with db.engine.begin() as conn:
-            conn.execute(
-                sa.delete(db.services_table).where(
-                    db.services_table.c.name == service_name
-                )
-            )
 
 
 def service_runs(match: Optional[str] = None) -> Dict[str, Dict[str, str]]:
@@ -376,21 +390,33 @@ def service_runs(match: Optional[str] = None) -> Dict[str, Dict[str, str]]:
     return dict(sorted(srv_runs.items(), key=sort_key))
 
 
-def get_service_names(match: Optional[str] = None) -> List[str]:
+def get_service_files(match: Optional[str] = None) -> List[Path]:
     """Get names of all services."""
-    # TODO save in private sqlite db.
-    srvs = {f.stem for f in systemd_dir.glob(f"{_SYSTEMD_FILE_PREFIX}*")}
-    names = [
-        re.search(re.escape(_SYSTEMD_FILE_PREFIX) + r"(.*)$", s).group(1) for s in srvs
-    ]
+    return get_systemd_files("service", match)
+
+
+def get_timer_files(match: Optional[str] = None) -> List[Path]:
+    """Get names of all services."""
+    return get_systemd_files("timer", match)
+
+
+def get_systemd_files(
+    file_type: Literal["timer", "service"], match: Optional[str] = None
+) -> List[Path]:
     if match:
-        names = [n for n in names if fnmatch(n, match)]
-    if not names:
+        if not match.startswith(_SYSTEMD_FILE_PREFIX):
+            match = f"{_SYSTEMD_FILE_PREFIX}{match}"
+        if not match.endswith(file_type):
+            match = f"{match}*.{file_type}"
+        files = list(systemd_dir.glob(match))
+    else:
+        files = list(systemd_dir.glob(f"{_SYSTEMD_FILE_PREFIX}*.{file_type}"))
+    if not files:
         if match:
-            logger.error("No service found matching: %s", match)
+            logger.error("No %s found matching: %s", file_type, match)
         else:
-            logger.error("No service found")
-    return names
+            logger.error("No %s found", file_type)
+    return files
 
 
 def parse_systemctl_tables(command: List[str]) -> List[Dict[str, str]]:
@@ -411,9 +437,24 @@ def parse_systemctl_tables(command: List[str]) -> List[Dict[str, str]]:
     return lines_data
 
 
+def is_service_active(service):
+    """
+    is_service_active method will check if service is running or not.
+    It raise exception if there is service is not loaded
+    Return value, True if service is running otherwise False.
+    :param str service: name of the service
+    """
+    try:
+        manager.GetUnit(service)
+        return True
+    except:
+        return False
+
+
 def user_systemctl(*args):
     """Run a systemd command as current user."""
     return run(["systemctl", "--user", *args], capture_output=True)
+    # return run(["systemctl", *args], capture_output=True)
 
 
 def service_cmd(service_name: str, command: str):

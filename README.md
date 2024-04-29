@@ -5,6 +5,7 @@ Admin commands are accessed via the `taskflows` command line tool. See `taskflow
 
 ### Setup
 ```bash
+sudo apt install libdbus-glib-1-dev
 pip install taskflows
 ``` 
 
@@ -51,6 +52,14 @@ Any errors that occurred during the execution of a task can be found in the `tas
 Services run commands on a specified schedule. See [Service](taskflows/service/service.py#35) for service configuration options.    
 
 To create the service(s), use the `create` method (e.g. `srv.create()`), or use the CLI `create` command (e.g. `taskflows create my_services.py`)   
+
+#### Enable your current user to be able to create services.
+```bash
+sudo groupadd systemd-users
+sudo usermod -aG systemd-users $USER
+sudo chown root:systemd-users /etc/systemd/system
+sudo chmod 775 /etc/systemd/system
+```
 
 ### Examples
 ```python
