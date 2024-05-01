@@ -15,6 +15,7 @@ from rich.table import Table
 
 from .db import task_flows_db
 from .service import (
+    systemd_dir,
     Service,
     disable_service,
     enable_service,
@@ -86,7 +87,7 @@ def status(service_name: str):
 @cli.command(name="list")
 def list_services():
     """List services."""
-    services = [f.name for f in get_service_files()]
+    services = [f.stem.replace(_SYSTEMD_FILE_PREFIX,"") for f in get_service_files()]
     if services:
         click.echo(pformat(services))
     else:
@@ -281,6 +282,22 @@ def remove(service: str):
     """
     remove_service(service)
     click.echo(click.style("Done!", fg="green"))
+
+
+@cli.command
+@click.argument("service", required=False)
+def show(service: str):
+    services = []
+    if service:
+        if not service.startswith(_SYSTEMD_FILE_PREFIX):
+            service = _SYSTEMD_FILE_PREFIX+service
+        if not service.endswith('.service'):
+            service += '.service'
+        services = [service]
+    else:
+        services = list(systemd_dir.glob('*.service'))
+    services = "\n\n".join([s.read_text() for s in services])
+    click.echo(click.style(services, fg="cyan"))
 
 
 def table_column_colors():
