@@ -18,20 +18,14 @@ class TaskflowsDB:
     def __init__(self) -> None:
         db_url = os.getenv("TASKFLOWS_DB_URL")
         if not db_url:
-            db_dir = "/var/lib/taskflows"
-            try:
-                Path(db_dir).mkdir(exist_ok=True)
-            except PermissionError:
-                db_dir = os.path.expanduser("~/.taskflows")
-                Path(db_dir).mkdir(exist_ok=True)
+            db_dir = os.path.expanduser("~/.taskflows")
             db_url = f"sqlite:///{db_dir}/taskflows.sqlite"
             dialect = "sqlite"
         else:
             dialect = re.search(r"^[a-z]+", db_url).group()
             if dialect == "sqlite":
                 db_dir = Path(db_url.replace("sqlite:///", "")).parent
-                logger.info("Checking database directory exists %s", db_dir)
-                db_dir.mkdir(parents=True, exist_ok=True)
+        Path(db_dir).mkdir(parents=True, exist_ok=True)
         schema_name = os.getenv("TASKFLOWS_DB_SCHEMA")
         if dialect == "sqlite":
             if schema_name:
@@ -43,7 +37,6 @@ class TaskflowsDB:
             from sqlalchemy.dialects.sqlite import JSON, insert
         elif dialect == "postgresql":
             from sqlalchemy.dialects.postgresql import JSON, insert
-
             if not schema_name:
                 schema_name = "taskflows"
         else:
