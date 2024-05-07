@@ -4,6 +4,7 @@ from functools import lru_cache
 from itertools import cycle
 from pprint import pformat, pprint
 from typing import Optional, Tuple
+from collections import defaultdict
 
 import click
 import sqlalchemy as sa
@@ -287,16 +288,17 @@ def remove(service: str):
 @cli.command
 @click.argument("service", required=False)
 def show(service: str):
-    services = []
+    files = defaultdict(list)
+    for f in systemd_dir.glob(f"{_SYSTEMD_FILE_PREFIX}*.service"):
+        files[f.stem].append(f)
+    for f in systemd_dir.glob(f"{_SYSTEMD_FILE_PREFIX}*.timer"):
+        files[f.stem].append(f)
     if service:
-        if not service.startswith(_SYSTEMD_FILE_PREFIX):
-            service = _SYSTEMD_FILE_PREFIX+service
-        if not service.endswith('.service'):
-            service += '.service'
-        services = [service]
-    else:
-        services = list(systemd_dir.glob('*.service'))
-    services = "\n\n".join([s.read_text() for s in services])
+        files = {k: v for k, v in files.items() if service in k}
+    services = []
+    for srvs in files.values():
+        services.append('\n'.join([s.read_text() for s in srvs]))
+    services = "\n\n".join(services)
     click.echo(click.style(services, fg="cyan"))
 
 
