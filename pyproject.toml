@@ -1,6 +1,6 @@
 [project]
 name = "taskflows"
-version = "0.4.3"
+version = "0.4.4"
 description = "Python task management, scheduling, alerts."
 authors = [{ name = "Dan Kelleher", email = "kelleherjdan@gmail.com" }]
 license = { text = "MIT" }
@@ -11,26 +11,23 @@ classifiers = [
 ]
 readme = "README.md"
 
-
 dependencies = [
     "sqlalchemy>=2.0.0",
     "pydantic>=2.0.0",
     "tqdm",
     "click",
-    "python-dotenv",
     "rich",
     "dynamic-imports>=1.0.0",
     "alert-msgs>=0.5.0",
     "quicklogs>=1.1.0",
     "func-timeout>=4.0.0",
-    "docker",
-    "dbus-python",
 ]
 
 [tool.setuptools]
 packages = ["taskflows"]
 
 [project.optional-dependencies]
+service = ["python-dotenv", "docker", "dbus-python"]
 dev = ["black", "pytest", "pytest-asyncio", "psycopg[binary]"]
 
 [build-system]

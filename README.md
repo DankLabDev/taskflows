@@ -4,11 +4,16 @@
 Admin commands are accessed via the `taskflows` command line tool. See `taskflows --help` for complete usage.  
 
 ### Setup
+For task decorators:
+```bash
+pip install taskflows
+``` 
+For additional service/scheduling functionality:
 ```bash
 sudo apt install libdbus-glib-1-dev
 loginctl enable-linger
-pip install taskflows
-``` 
+pip install taskflows[service]
+```
 
 Task execution metadata is stored in SQLite (default) or Postgresql. To use a personal database, set environment variable `TASKFLOWS_DB_URL` to your database URL. If using Postgresql, TASKFLOWS_DB_SCHEMA may also be set to use a custom schema (default schema is *taskflows*).   
 
