@@ -1,22 +1,23 @@
 import re
 import subprocess
+from collections import defaultdict
+from fnmatch import fnmatch
 from functools import lru_cache
 from itertools import cycle
-from pprint import pformat, pprint
-from typing import Optional, Tuple
-from collections import defaultdict
+from pprint import pformat
+from typing import List, Union
 
 import click
 import sqlalchemy as sa
 from click.core import Group
-from dynamic_imports import import_module
+from dynamic_imports import class_inst
 from rich import box
 from rich.console import Console
 from rich.table import Table
 
 from .db import task_flows_db
 from .service import (
-    systemd_dir,
+    DockerService,
     Service,
     disable_service,
     enable_service,
@@ -28,8 +29,24 @@ from .service import (
     service_runs,
     start_service,
     stop_service,
+    systemd_dir,
+    systemd_manager,
 )
 from .utils import _SYSTEMD_FILE_PREFIX
+
+
+def discover_services(search_in: str) -> List[Union[DockerService, Service]]:
+    """Search for services in a Python module or package."""
+    services = []
+    for class_t in (DockerService, Service):
+        services.extend(class_inst(class_type=class_t, search_in=search_in))
+    return services
+
+
+def get_service_names():
+    """Get names of all services that have been created."""
+    return [f.stem.replace(_SYSTEMD_FILE_PREFIX, "") for f in get_service_files()]
+
 
 cli = Group("taskflows", chain=True)
 
@@ -75,24 +92,30 @@ def history(limit: int, match: str = None):
     console.print(table, justify="center")
 
 
-@cli.command
-@click.argument("service_name")
-def status(service_name: str):
-    """Get status of service."""
-    proc = service_cmd(service_name=service_name, command="status")
-    pprint(proc.stderr.decode().split("\n"))
-    pprint(proc.stdout.decode().split("\n"))
-    # manager.GetUnitFileState(service)
-
-
 @cli.command(name="list")
 def list_services():
     """List services."""
-    services = [f.stem.replace(_SYSTEMD_FILE_PREFIX,"") for f in get_service_files()]
+    services = get_service_names()
     if services:
         click.echo(pformat(services))
     else:
         click.echo(click.style("No services found.", fg="yellow"))
+
+
+@cli.command
+@click.argument("service_name", required=False)
+def status(service_name: str):
+    """Get status of service(s)."""
+    if service_name:
+        service_names = [service_name]
+    else:
+        service_names = get_service_names()
+    for sn in service_names:
+        proc = service_cmd(service_name=sn, command="status")
+        err = proc.stderr.decode().strip()
+        info = proc.stdout.decode().strip()
+        state = systemd_manager().GetUnitFileState(f"taskflow_{sn}.service").strip()
+        print(f"----------{sn} status----------\n{state}\n{err}\n{info}\n\n")
 
 
 @cli.command()
@@ -134,82 +157,66 @@ def logs(service_name: str):
 
 
 @cli.command()
-@click.argument("service_file", default="deployments.py")
+@click.argument("search-in")
+@click.option(
+    "-c",
+    "--command",
+    type=str,
+    help="Command that should be ran on discovered services (e.g. create, enable, disable, remove, restart, run, stop).",
+)
 @click.option(
     "-i",
     "--include",
-    multiple=True,
-    help="Name(s) of service(s)/service list(s) that should be created.",
-)
-@click.option(
-    "-im",
-    "--include-matching",
-    multiple=True,
-    help="Substring(s) of service(s)/service list(s) names that should be created.",
+    type=str,
+    help="Name or glob pattern of services that should be included.",
 )
 @click.option(
     "-e",
     "--exclude",
-    multiple=True,
-    help="Name(s) of service(s)/service list(s) that should not be created.",
+    type=str,
+    help="Name or glob pattern of services that should be excluded.",
 )
-@click.option(
-    "-em",
-    "--exclude-matching",
-    multiple=True,
-    help="Substring(s) of service(s)/service list(s) names that should not be created.",
-)
-def create(
-    service_file: str,
-    include: Optional[Tuple[str]] = None,
-    include_matching: Optional[Tuple[str]] = None,
-    exclude: Optional[Tuple[str]] = None,
-    exclude_matching: Optional[Tuple[str]] = None,
+def search(
+    search_in,
+    command,
+    include,
+    exclude,
 ):
-    """Create services from a Python file containing services/service lists or dict with services or service lists as values."""
-    services = {}
-    for member in import_module(service_file).__dict__.values():
-        if isinstance(member, Service):
-            services[member.name] = member
-        elif isinstance(member, (list, tuple)):
-            services.update({m.name: m for m in member if isinstance(m, Service)})
-        elif isinstance(member, dict):
-            for k, v in member.items():
-                if isinstance(v, Service):
-                    services[v.name] = v
-                    services[k] = v
-                elif isinstance(v, (list, tuple)) and (
-                    v := {m.name: m for m in v if isinstance(m, Service)}
-                ):
-                    services.update(v)
-                    services[k] = v
+    """Search for and run a command on services from a Python file or package."""
+    services = discover_services(search_in)
     if include:
-        services = {
-            k: v for k, v in services.items() if any(name == k for name in include)
-        }
-    if include_matching:
-        services = {
-            k: v
-            for k, v in services.items()
-            if any(name in k for name in include_matching)
-        }
+        services = [s for s in services if fnmatch(include, s.name)]
     if exclude:
-        services = {
-            k: v for k, v in services.items() if not any(name == k for name in exclude)
-        }
-    if exclude_matching:
-        services = {
-            k: v
-            for k, v in services.items()
-            if not any(name in k for name in exclude_matching)
-        }
-    click.echo(
-        click.style(
-            f"Creating {len(services)} service(s) from {service_file}.", fg="cyan"
+        services = [s for s in services if not fnmatch(exclude, s.name)]
+    services_str = "\n\n".join([str(s) for s in services])
+    if command:
+        click.echo(
+            click.style(
+                f"{command.title()}ing {len(services)} service(s) from {search_in}:\n{services_str}",
+                fg="cyan",
+            )
         )
-    )
-    for srv in services.values():
-        srv.create()
+        for srv in services:
+            getattr(srv, command)()
+    else:
+        click.echo(
+            click.style(
+                f"Found {len(services)} service(s) from {search_in}:\n{services_str}",
+                fg="cyan",
+            )
+        )
+    click.echo(click.style("Done!", fg="green"))
+
+
+@cli.command()
+@click.argument("service")
+def create(service: str):
+    """Create service(s).
+
+    Args:
+        service (str): Name or name pattern of service(s) to create.
+    """
+    start_service(service)
     click.echo(click.style("Done!", fg="green"))
 
 
@@ -288,6 +295,7 @@ def remove(service: str):
 @cli.command
 @click.argument("service", required=False)
 def show(service: str):
+    """Show services file contents."""
     files = defaultdict(list)
     for f in systemd_dir.glob(f"{_SYSTEMD_FILE_PREFIX}*.service"):
         files[f.stem].append(f)
@@ -297,7 +305,7 @@ def show(service: str):
         files = {k: v for k, v in files.items() if service in k}
     services = []
     for srvs in files.values():
-        services.append('\n'.join([s.read_text() for s in srvs]))
+        services.append("\n".join([s.read_text() for s in srvs]))
     services = "\n\n".join(services)
     click.echo(click.style(services, fg="cyan"))
 
