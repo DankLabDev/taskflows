@@ -1,6 +1,6 @@
 import re
 from collections import defaultdict
-from dataclasses import asdict
+from dataclasses import dataclass
 from datetime import datetime
 from fnmatch import fnmatch
 from pathlib import Path
@@ -8,19 +8,18 @@ from subprocess import run
 from time import time
 from typing import Any, Dict, List, Literal, Optional, Sequence, Union
 
-import dbus
-from pydantic import BaseModel
-
 from taskflows.utils import _SYSTEMD_FILE_PREFIX, logger
 
 from .constraints import HardwareConstraint, SystemLoadConstraint
-from .docker import DockerContainer
 from .schedule import Schedule
 
-# bus = dbus.SystemBus()
-bus = dbus.SessionBus()
-systemd = bus.get_object("org.freedesktop.systemd1", "/org/freedesktop/systemd1")
-manager = dbus.Interface(systemd, "org.freedesktop.systemd1.Manager")
+
+def systemd_manager():
+    import dbus
+
+    bus = dbus.SessionBus()
+    systemd = bus.get_object("org.freedesktop.systemd1", "/org/freedesktop/systemd1")
+    return dbus.Interface(systemd, "org.freedesktop.systemd1.Manager")
 
 
 systemd_dir = Path.home().joinpath(".config", "systemd", "user")
@@ -29,10 +28,12 @@ systemd_dir = Path.home().joinpath(".config", "systemd", "user")
 ServiceNames = Optional[Union[str, Sequence[str]]]
 
 
-class Service(BaseModel):
+@dataclass
+class Service:
+    """A service to run a command on a specified schedule."""
+
     name: str
     command: str
-    container: Optional[DockerContainer] = None
     description: Optional[str] = None
     schedule: Optional[Union[Schedule, Sequence[Schedule]]] = None
     restart_policy: Optional[
@@ -96,21 +97,8 @@ class Service(BaseModel):
     env: Optional[Dict[str, str]] = None
     working_directory: Optional[Union[str, Path]] = None
 
-    class Config:
-        arbitrary_types_allowed = True
-
     def create(self):
         logger.info("Creating service %s", self.name)
-        if self.container:
-            if not self.container.name:
-                logger.info("Setting container name to service name: %s", self.name)
-                self.container.name = self.name
-            else:
-                logger.warning(
-                    "Container name is already set. Will not change: %s",
-                    self.container.name,
-                )
-            self.container.create()
         self._write_timer_unit()
         self._write_service_unit()
         self.enable()
@@ -132,15 +120,6 @@ class Service(BaseModel):
 
     def remove(self):
         remove_service(self.name)
-
-    def as_dict(self) -> Dict[str, Any]:
-        data = self.model_dump()
-        if self.schedule:
-            data["schedule"] = asdict(self.schedule)
-        data = {k: v for k, v in data.items() if v is not None}
-        if "working_directory" in data:
-            data["working_directory"] = str(data["working_directory"])
-        return data
 
     def _join_values(self, values: Any):
         if isinstance(values, str):
@@ -252,6 +231,21 @@ class Service(BaseModel):
             logger.info("Creating new unit: %s", file)
         file.write_text(content)
 
+    def __repr__(self):
+        return str(self)
+
+    def __str__(self):
+        meta = {
+            "name": self.name,
+            "command": self.command,
+        }
+        if self.description:
+            meta["description"] = self.description
+        if self.schedule:
+            meta["schedule"] = self.schedule
+        meta = ", ".join(f"{k}={v}" for k, v in meta.items())
+        return f"{self.__class__.__name__}({meta})"
+
 
 def enable_service(service: str):
     """Enable currently disabled service(s).
@@ -261,7 +255,7 @@ def enable_service(service: str):
     """
     for sf in get_service_files(service):
         logger.info("Enabling service: %s", sf)
-        manager.EnableUnitFiles([str(sf)], True, True)
+        systemd_manager().EnableUnitFiles([str(sf)], True, True)
         # user_systemctl("enable", "--now", f"{_SYSTEMD_FILE_PREFIX}{sf}.timer")
 
 
@@ -274,7 +268,7 @@ def is_service_enabled(service):
     :param str service: name of the service
     """
     try:
-        return manager.GetUnitFileState(service) == "enabled"
+        return systemd_manager().GetUnitFileState(service) == "enabled"
     except:
         return False
 
@@ -288,9 +282,9 @@ def start_service(service: str):
     :param str service: name of the service
     """
     for sf in get_service_files(service):
-        logger.info("Running service: %s", sf)
+        logger.info("Running service: %s", sf.name)
         # service_cmd(sf, "start")
-        manager.StartUnit(sf.name, "replace")
+        systemd_manager().StartUnit(sf.name, "replace")
 
 
 def restart_service(service: str):
@@ -302,7 +296,7 @@ def restart_service(service: str):
     for sf in get_service_files(service):
         logger.info("Restarting service: %s", sf)
         # service_cmd(sf, "restart")
-        manager.RestartUnit(sf.name, "replace")
+        systemd_manager().RestartUnit(sf.name, "replace")
 
 
 def stop_service(service: str):
@@ -315,7 +309,7 @@ def stop_service(service: str):
         logger.info("Stopping service: %s", sf)
         # service_cmd(sf, "stop")
         # TODO a way to not use sigkill?
-        manager.StopUnit(sf.name, "replace")
+        systemd_manager().StopUnit(sf.name, "replace")
 
 
 def disable_service(service: str):
@@ -330,10 +324,10 @@ def disable_service(service: str):
         # )
         logger.info("Stopped and disabled service: %s", sf)
         # file = systemd_dir / f"{_SYSTEMD_FILE_PREFIX}{sf}.timer"
-        manager.DisableUnitFiles([sf.name], False)
+        systemd_manager().DisableUnitFiles([sf.name], False)
     # remove any failed status caused by stopping service.
     # user_systemctl("reset-failed")
-    manager.Reload()
+    systemd_manager().Reload()
 
 
 def remove_service(service: str):
@@ -342,19 +336,17 @@ def remove_service(service: str):
     Args:
         service (str): Name or name pattern of service(s) to remove.
     """
-    for sf in get_service_files(service):
-        logger.info("Removing service %s", sf)
-        disable_service(sf)
-        files = list(systemd_dir.glob(f"{_SYSTEMD_FILE_PREFIX}{sf}.*"))
-        srvs = {f.stem for f in files}
-        for srv in srvs:
-            logger.info("Cleaning cache and runtime directories: %s.", srv)
-            # TODO python-dbus
-            user_systemctl("clean", srv)
+    disable_service(service)
+    for srv_file in get_service_files(service):
+        logger.info("Cleaning cache and runtime directories: %s.", srv_file)
+        # TODO python-dbus
+        user_systemctl("clean", srv_file.stem)
         # remove files.
-        for file in files:
-            logger.info("Deleting %s", file)
-            file.unlink()
+        logger.info("Deleting %s", srv_file)
+        srv_file.unlink()
+    for timer_file in get_timer_files(service):
+        logger.info("Deleting %s", timer_file)
+        timer_file.unlink()
 
 
 def service_runs(match: Optional[str] = None) -> Dict[str, Dict[str, str]]:
@@ -402,7 +394,7 @@ def get_timer_files(match: Optional[str] = None) -> List[Path]:
 def get_systemd_files(
     file_type: Literal["timer", "service"], match: Optional[str] = None
 ) -> List[Path]:
-    if match:
+    if match is not None:
         if not match.startswith(_SYSTEMD_FILE_PREFIX):
             match = f"{_SYSTEMD_FILE_PREFIX}{match}"
         if not match.endswith(file_type):
@@ -444,7 +436,7 @@ def is_service_active(service):
     :param str service: name of the service
     """
     try:
-        manager.GetUnit(service)
+        systemd_manager().GetUnit(service)
         return True
     except:
         return False

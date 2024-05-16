@@ -8,10 +8,18 @@ from .constraints import (
     MemoryPressure,
     SystemLoadConstraint,
 )
-from .docker import ContainerLimits, DockerContainer, DockerImage, Ulimit, Volume
+from .docker import (
+    ContainerLimits,
+    DockerContainer,
+    DockerImage,
+    DockerService,
+    DockerStartService,
+    DockerStopService,
+    Ulimit,
+    Volume,
+)
 from .schedule import Calendar, Periodic, Schedule
 from .service import (
-    systemd_dir,
     Service,
     disable_service,
     enable_service,
@@ -23,4 +31,6 @@ from .service import (
     service_runs,
     start_service,
     stop_service,
+    systemd_dir,
+    systemd_manager,
 )
