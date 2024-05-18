@@ -198,6 +198,7 @@ def search(
         )
         for srv in services:
             getattr(srv, command)()
+        systemd_manager().Reload()
     else:
         click.echo(
             click.style(
@@ -205,18 +206,6 @@ def search(
                 fg="cyan",
             )
         )
-    click.echo(click.style("Done!", fg="green"))
-
-
-@cli.command()
-@click.argument("service")
-def create(service: str):
-    """Create service(s).
-
-    Args:
-        service (str): Name or name pattern of service(s) to create.
-    """
-    start_service(service)
     click.echo(click.style("Done!", fg="green"))
 
 

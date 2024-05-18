@@ -3,17 +3,14 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Sequence, Union
 
-from dotenv import dotenv_values
-from taskflows.utils import logger
-from xxhash import xxh32
-
 import docker
 from docker.errors import ImageNotFound
 from docker.models.containers import Container
 from docker.models.images import Image
+from dotenv import dotenv_values
+from xxhash import xxh32
 
-from .schedule import Schedule
-from .service import Service
+from taskflows.utils import logger
 
 
 @lru_cache
@@ -94,7 +91,6 @@ class DockerImage:
         except ImageNotFound:
             img = None
         if img is not None:
-            logger.warning("Image already exists: %s", self.tag)
             if not force_recreate:
                 logger.warning("Will not recreate image: %s", self.tag)
                 return img
@@ -470,100 +466,3 @@ class DockerContainer:
             return
         container.remove(force=True)
         logger.info("Removed Docker container: %s", container_name)
-
-
-class DockerService:
-    """A service to start and stop a Docker container."""
-
-    def __init__(
-        self,
-        container: DockerContainer | str,
-        start_schedule: Union[Schedule, Sequence[Schedule]],
-        stop_schedule: Union[Schedule, Sequence[Schedule]],
-        start_kwargs: Optional[Dict[str, Any]] = None,
-        stop_kwargs: Optional[Dict[str, Any]] = None,
-    ):
-        start_kwargs = start_kwargs or {}
-        stop_kwargs = stop_kwargs or {}
-        self.start_service = DockerStartService(
-            container=container, schedule=start_schedule, **start_kwargs
-        )
-        self.stop_service = DockerStopService(
-            container=container, schedule=stop_schedule, **stop_kwargs
-        )
-
-    @property
-    def name(self) -> str:
-        return f"{self.start_service} + {self.stop_service}"
-
-    def create(self):
-        self.start_service.create()
-        self.stop_service.create()
-
-    def enable(self):
-        self.start_service.enable()
-        self.stop_service.enable()
-
-    def run(self):
-        self.start_service.run()
-        self.stop_service.run()
-
-    def stop(self):
-        self.start_service.stop()
-        self.stop_service.stop()
-
-    def restart(self):
-        self.start_service.restart()
-        self.stop_service.restart()
-
-    def disable(self):
-        self.start_service.disable()
-        self.stop_service.disable()
-
-    def remove(self):
-        self.start_service.remove()
-        self.stop_service.remove()
-
-    def __str__(self):
-        return f"DockerService({self.name})"
-
-    def __repr__(self):
-        return str(self)
-
-
-class DockerStartService(Service):
-    """A service to start a Docker container."""
-
-    def __init__(
-        self, container: DockerContainer | str, name: Optional[str] = None, **kwargs
-    ):
-        self.container = container
-        cname = container if isinstance(container, str) else container.name
-        if name is None:
-            name = f"{cname}-start"
-        super().__init__(
-            name=name,
-            command=f"docker start {cname}",
-            **kwargs,
-        )
-
-    def create(self):
-        if isinstance(self.container, DockerContainer):
-            if not self.container.name:
-                logger.info("Setting container name to service name: %s", self.name)
-                self.container.name = self.name
-            self.container.create()
-        super().create()
-
-
-class DockerStopService(Service):
-    """A service to start a Docker container."""
-
-    def __init__(
-        self, container: DockerContainer | str, name: Optional[str] = None, **kwargs
-    ):
-        self.container = container
-        cname = container if isinstance(container, str) else container.name
-        if name is None:
-            name = f"{cname}-stop"
-        super().__init__(name=name, command=f"docker stop {cname}", **kwargs)

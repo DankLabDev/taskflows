@@ -1,13 +1,12 @@
 from datetime import datetime
-from typing import List, Literal
+from typing import Literal, Set
 
-from pydantic.dataclasses import dataclass
+from pydantic.dataclasses import Field, dataclass
 
 
-@dataclass
 class Schedule:
-    def unit_entries(self) -> List[str]:
-        raise NotImplementedError("unit_entries not implemented in Schedule")
+    def __init__(self):
+        self.unit_entries = set()
 
 
 @dataclass
@@ -21,13 +20,17 @@ class Calendar(Schedule):
     """
 
     schedule: str
+    persistent: bool = True
+
+    def __post_init__(self):
+        super().__init__()
+        self.unit_entries.add(f"OnCalendar={self.schedule}")
+        if self.persistent:
+            self.unit_entries.add("Persistent=true")
 
     @classmethod
     def from_datetime(cls, dt: datetime):
         return cls(schedule=dt.strftime("%a %y-%m-%d %H:%M:%S %Z").strip())
-
-    def unit_entries(self) -> List[str]:
-        return [f"OnCalendar={self.schedule}"]
 
 
 @dataclass
@@ -41,21 +44,19 @@ class Periodic(Schedule):
     # Measure period from
     relative_to: Literal["period", "finish", "start"]
 
-    def unit_entries(self) -> List[str]:
-        entries = []
+    def __post_init__(self):
         if self.start_on == "boot":
             # start 1 second after boot.
-            entries.append("OnBootSec=1")
+            self.unit_entries.add("OnBootSec=1")
         elif self.start_on == "login":
             # start 1 second after the service manager is started (which is on login).
-            entries.append("OnStartupSec=1")
+            self.unit_entries.add("OnStartupSec=1")
         if self.relative_to == "period":
             # defines a timer relative to the moment the timer unit itself is activated.
-            entries.append(f"OnActiveSec={self.period}")
+            self.unit_entries.add(f"OnActiveSec={self.period}")
         elif self.relative_to == "start":
             # defines a timer relative to when the unit the timer unit is activating was last activated.
-            entries.append(f"OnUnitActiveSec={self.period}")
+            self.unit_entries.add(f"OnUnitActiveSec={self.period}")
         elif self.relative_to == "finish":
             # defines a timer relative to when the unit the timer unit is activating was last deactivated.
-            entries.append(f"OnUnitInactiveSec={self.period}")
-        return entries
+            self.unit_entries.add(f"OnUnitInactiveSec={self.period}")

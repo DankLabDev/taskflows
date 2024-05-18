@@ -36,34 +36,34 @@ def logger(test_name):
 
 def test_config():
     v = Calendar("Sun 17:00 America/New_York")
-    assert isinstance(v.unit_entries(), list)
+    assert isinstance(v.unit_entries, list)
 
     v = Periodic(start_on="boot", period=10, relative_to="period")
-    assert isinstance(v.unit_entries(), list)
+    assert isinstance(v.unit_entries, list)
 
     v = Periodic("login", 1, "start")
-    assert isinstance(v.unit_entries(), list)
+    assert isinstance(v.unit_entries, list)
 
     v = constraints.Memory(amount=1000000, constraint=">=", silent=True)
-    assert isinstance(v.unit_entries(), list)
+    assert isinstance(v.unit_entries, list)
 
     v = constraints.Memory(amount=908902, constraint="=", silent=False)
-    assert isinstance(v.unit_entries(), list)
+    assert isinstance(v.unit_entries, list)
 
     v = constraints.CPUs(amount=9, constraint=">=", silent=True)
-    assert isinstance(v.unit_entries(), list)
+    assert isinstance(v.unit_entries, list)
 
     v = constraints.CPUPressure(max_percent=80, timespan="5min", silent=True)
-    assert isinstance(v.unit_entries(), list)
+    assert isinstance(v.unit_entries, list)
 
     v = constraints.MemoryPressure(max_percent=90, timespan="5min", silent=False)
-    assert isinstance(v.unit_entries(), list)
+    assert isinstance(v.unit_entries, list)
 
     v = constraints.CPUPressure(max_percent=80, timespan="1min", silent=False)
-    assert isinstance(v.unit_entries(), list)
+    assert isinstance(v.unit_entries, list)
 
     v = constraints.IOPressure(max_percent=80, timespan="10sec", silent=True)
-    assert isinstance(v.unit_entries(), list)
+    assert isinstance(v.unit_entries, list)
 
 
 def test_service_management(test_name, log_dir):
