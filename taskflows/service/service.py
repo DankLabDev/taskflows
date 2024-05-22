@@ -11,7 +11,7 @@ from typing import Dict, List, Literal, Optional, Sequence, Union
 from taskflows.utils import _SYSTEMD_FILE_PREFIX, logger
 
 from .constraints import HardwareConstraint, SystemLoadConstraint
-from .docker import DockerContainer
+from .docker import DockerContainer, delete_docker_container
 from .schedule import Schedule
 
 
@@ -167,7 +167,10 @@ class Service:
             f"KillSignal={self.kill_signal}",
         }
         if not self.start_command_blocking:
+            # service.add("Type=simple")
             service.add("RemainAfterExit=yes")
+        ##else:
+        # service.add("Type=simple")
         if self.stop_command:
             service.add(f"ExecStop={self.stop_command}")
         if self.working_directory:
@@ -262,7 +265,7 @@ class Service:
         systemd_dir.mkdir(parents=True, exist_ok=True)
         file_stem = f"{_SYSTEMD_FILE_PREFIX}{self.name.replace(' ', '_')}"
         if is_stop_unit:
-            file_stem += "_stop"
+            file_stem = f"stop-{file_stem}"
         file = systemd_dir / f"{file_stem}.{unit_type}"
         if file.exists():
             logger.warning("Replacing existing unit: %s", file)
@@ -293,10 +296,10 @@ class DockerService(Service):
     def __init__(self, container: DockerContainer | str, **kwargs):
         cname = container if isinstance(container, str) else container.name
         self.container = container
-        for key in ("requires", "start_after"):
-            kwargs[key] = []
-        kwargs["requires"].append("docker.service")
-        kwargs["start_after"].append("docker.service")
+        # for key in ("requires", "start_after"):
+        #    kwargs[key] = []
+        # kwargs["requires"].append("docker.service")
+        # kwargs["start_after"].append("docker.service")
         super().__init__(
             name=kwargs.get("name", cname),
             start_command=f"docker start {cname}",
@@ -406,16 +409,24 @@ def remove_service(service: str):
         service (str): Name or name pattern of service(s) to remove.
     """
     disable_service(service)
+    container_names = set()
     for srv_file in get_service_files(service):
         logger.info("Cleaning cache and runtime directories: %s.", srv_file)
         # TODO python-dbus
         user_systemctl("clean", srv_file.stem)
+        container_name = re.search(
+            r"docker (?:start|stop) ([\w-]+)", srv_file.read_text()
+        )
+        if container_name:
+            container_names.add(container_name.group(1))
         # remove files.
         logger.info("Deleting %s", srv_file)
         srv_file.unlink()
     for timer_file in get_timer_files(service):
         logger.info("Deleting %s", timer_file)
         timer_file.unlink()
+    for cname in container_names:
+        delete_docker_container(cname)
 
 
 def service_runs(match: Optional[str] = None) -> Dict[str, Dict[str, str]]:
@@ -467,7 +478,9 @@ def get_systemd_files(
         if not match.startswith(_SYSTEMD_FILE_PREFIX):
             match = f"{_SYSTEMD_FILE_PREFIX}{match}"
         if not match.endswith(file_type):
-            match = f"{match}*.{file_type}"
+            if not match.endswith("*"):
+                match = f"{match}*"
+            match = f"{match}.{file_type}"
         files = list(systemd_dir.glob(match))
     else:
         files = list(systemd_dir.glob(f"{_SYSTEMD_FILE_PREFIX}*.{file_type}"))

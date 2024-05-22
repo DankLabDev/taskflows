@@ -1,7 +1,7 @@
 from datetime import datetime
-from typing import Literal, Set
+from typing import Literal
 
-from pydantic.dataclasses import Field, dataclass
+from pydantic.dataclasses import dataclass
 
 
 class Schedule:
