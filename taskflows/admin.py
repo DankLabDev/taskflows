@@ -291,7 +291,7 @@ def show(service: str):
     for f in systemd_dir.glob(f"{_SYSTEMD_FILE_PREFIX}*.timer"):
         files[f.stem].append(f)
     if service:
-        files = {k: v for k, v in files.items() if service in k}
+        files = {k: v for k, v in files.items() if fnmatch(service, k)}
     services = []
     for srvs in files.values():
         services.append("\n".join([s.read_text() for s in srvs]))
