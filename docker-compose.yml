@@ -1,0 +1,11 @@
+services:
+  fluent-bit:
+    image: fluent/fluent-bit:latest
+    container_name: fluent-bit
+    restart: always
+    network_mode: host
+    volumes:
+      - ./fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf:ro
+      - /var/log/journal:/var/log/journal:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+  

@@ -1,4 +1,3 @@
-
 # Task Management, Scheduling, and Alerting.
 
 Admin commands are accessed via the `taskflows` command line tool. See `taskflows --help` for complete usage.  
@@ -7,7 +6,7 @@ Admin commands are accessed via the `taskflows` command line tool. See `taskflow
 For task decorators:
 ```bash
 pip install taskflows
-``` 
+```
 For additional service/scheduling functionality:
 ```bash
 sudo apt install libdbus-glib-1-dev

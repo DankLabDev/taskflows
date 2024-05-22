@@ -7,10 +7,11 @@ import docker
 from docker.errors import ImageNotFound
 from docker.models.containers import Container
 from docker.models.images import Image
+from docker.types import LogConfig
 from dotenv import dotenv_values
 from xxhash import xxh32
 
-from taskflows.utils import logger
+from taskflows.utils import config, logger
 
 
 @lru_cache
@@ -139,6 +140,15 @@ class Ulimit:
     def __post_init__(self):
         if self.soft is None and self.hard is None:
             raise ValueError("Either `soft` limit or `hard` limit must be set.")
+
+
+fluentd_log_driver = LogConfig(
+    type=LogConfig.types.FLUENTD,
+    config={
+        "fluentd-address": f"{config.fluent_bit_host}:{config.fluent_bit_port}",
+        "tag": "docker.{{.Name}}",
+    },
+)
 
 
 @dataclass
@@ -270,7 +280,10 @@ class DockerContainer:
     # Containers declared in this dict will be linked to the new
     # container using the provided alias. Default:.
     links: Optional[Dict[str, str]] = None
-    # Logging configuration.
+    # Logging configuration. Defaults to fluentd_log_driver
+    # log_config: Optional[docker.types.LogConfig] = field(
+    #    default_factory=lambda: fluentd_log_driver
+    # )
     log_config: Optional[docker.types.LogConfig] = None
     # LXC config.
     lxc_conf: Optional[dict] = None
@@ -419,24 +432,26 @@ class DockerContainer:
         # if image is not build, it must be built.
         if isinstance(self.image, DockerImage):
             self.image.build()
-        config = {k: v for k, v in asdict(self).items() if v is not None}
+        cfg = {k: v for k, v in asdict(self).items() if v is not None}
+        if cfg.get("log_config") is None:
+            cfg["log_config"] = fluentd_log_driver
 
-        env = config.pop("env", {})
-        if env_file := config.pop("env_file", None):
+        env = cfg.pop("env", {})
+        if env_file := cfg.pop("env_file", None):
             env.update(dotenv_values(env_file))
         if env:
-            config["environment"] = env
+            cfg["environment"] = env
 
-        config["name"] = self.name
+        cfg["name"] = self.name
         if " " in self.command:
-            config["command"] = self.command.split()
+            cfg["command"] = self.command.split()
         if self.ulimits:
-            config["ulimits"] = [
+            cfg["ulimits"] = [
                 docker.types.Ulimit(name=l.name, soft=l.soft, hard=l.hard)
                 for l in self.ulimits
             ]
         if self.volumes:
-            config["volumes"] = {
+            cfg["volumes"] = {
                 v.host_path: {
                     "bind": v.container_path,
                     "mode": "ro" if v.read_only else "rw",
@@ -444,25 +459,25 @@ class DockerContainer:
                 for v in self.volumes
             }
         if isinstance(self.image, DockerImage):
-            config["image"] = self.image.tag
-
-        logger.info("Creating Docker container %s.", self.name)
-        return get_docker_client().containers.create(**config)
+            cfg["image"] = self.image.tag
+        logger.info("Creating Docker container %s: %s", self.name, cfg)
+        return get_docker_client().containers.create(**cfg)
 
     def delete(self):
         """Remove container."""
-        self.delete_container(self.name)
+        delete_docker_container(self.name)
 
-    @staticmethod
-    def delete_container(container_name: str):
-        """Remove container.
 
-        Args:
-            container_name (str): Name of container to remove.
-        """
-        try:
-            container = get_docker_client().containers.get(container_name)
-        except docker.errors.NotFound:
-            return
-        container.remove(force=True)
-        logger.info("Removed Docker container: %s", container_name)
+def delete_docker_container(container_name: str, force: bool = True) -> bool:
+    """Remove container.
+
+    Args:
+        container_name (str): Name of container to remove.
+    """
+    try:
+        container = get_docker_client().containers.get(container_name)
+    except docker.errors.NotFound:
+        return False
+    container.remove(force=force)
+    logger.info("Removed Docker container: %s", container_name)
+    return True
