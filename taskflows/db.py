@@ -6,7 +6,38 @@ from pathlib import Path
 
 import sqlalchemy as sa
 
-from taskflows.utils import logger
+from taskflows.utils import config, logger
+
+schema_name = config.db_schema
+
+db_url = config.db_url
+if not db_url:
+    db_dir = os.path.expanduser("~/.taskflows")
+    db_url = f"sqlite:///{db_dir}/taskflows.sqlite"
+    dialect = "sqlite"
+else:
+    dialect = re.search(r"^[a-z]+", db_url).group()
+    if dialect == "sqlite":
+        db_dir = Path(db_url.replace("sqlite:///", "")).parent
+
+if dialect == "sqlite":
+    # schemas are not supported by SQLite. Will not use any provided schema.
+    schema_name = None
+
+sa_meta = sa.MetaData(schema=schema_name)
+
+engine = sa.create_engine(db_url)
+
+service_logs_table = sa.Table(
+    "service_logs",
+    sa_meta,
+    # TODO needs ID
+    sa.Column("tag", sa.Text),
+    sa.Column("log", sa.Text),
+    sa.Column(
+        "time", sa.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    ),
+)
 
 
 @lru_cache
@@ -16,34 +47,14 @@ def task_flows_db():
 
 class TaskflowsDB:
     def __init__(self) -> None:
-        db_url = os.getenv("TASKFLOWS_DB_URL")
-        if not db_url:
-            db_dir = os.path.expanduser("~/.taskflows")
-            db_url = f"sqlite:///{db_dir}/taskflows.sqlite"
-            dialect = "sqlite"
-        else:
-            dialect = re.search(r"^[a-z]+", db_url).group()
-            if dialect == "sqlite":
-                db_dir = Path(db_url.replace("sqlite:///", "")).parent
-        Path(db_dir).mkdir(parents=True, exist_ok=True)
-        schema_name = os.getenv("TASKFLOWS_DB_SCHEMA")
         if dialect == "sqlite":
-            if schema_name:
-                logger.warning(
-                    "Schemas are not supported by SQLite. Will not use provided schema: %s",
-                    schema_name,
-                )
-            schema_name = None
-            from sqlalchemy.dialects.sqlite import JSON, insert
+
+            from sqlalchemy.dialects.sqlite import insert
         elif dialect == "postgresql":
-            from sqlalchemy.dialects.postgresql import JSON, insert
-            if not schema_name:
-                schema_name = "taskflows"
+            from sqlalchemy.dialects.postgresql import insert
         else:
             raise ValueError(f"Unsupported database dialect: {dialect}")
         logger.info("Using database: %s", db_url)
-        sa_meta = sa.MetaData(schema=schema_name)
-        engine = sa.create_engine(db_url)
         if schema_name:
             with engine.begin() as conn:
                 if not conn.dialect.has_schema(conn, schema_name):
