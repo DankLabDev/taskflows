@@ -1,12 +1,27 @@
-from typing import Literal, Sequence
+from typing import Literal, Optional, Sequence
 
 from alert_msgs import MsgDst
-from pydantic import BaseModel
+from pydantic import BaseModel, PositiveInt
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from quicklogs import get_logger
 
 logger = get_logger("taskflows", stdout=True)
 
-_SYSTEMD_FILE_PREFIX = "taskflow_"
+_SYSTEMD_FILE_PREFIX = "taskflow-"
+
+
+class Config(BaseSettings):
+    """S3 configuration. Variables will be loaded from environment variables if set."""
+
+    db_url: Optional[str] = None
+    db_schema: str = "taskflows"
+    fluent_bit_host: str = "localhost"
+    fluent_bit_port: PositiveInt = 24224
+
+    model_config = SettingsConfigDict(env_prefix="taskflows_")
+
+
+config = Config()
 
 
 class Alerts(BaseModel):
