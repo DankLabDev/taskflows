@@ -358,7 +358,7 @@ def start_service(service: str):
     """
     for sf in get_service_files(service):
         logger.info("Running service: %s", sf.name)
-        # service_cmd(sf, "start")
+        #service_cmd(sf.name, "start")
         systemd_manager().StartUnit(sf.name, "replace")
 
 

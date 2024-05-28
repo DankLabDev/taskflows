@@ -1,7 +1,7 @@
 import re
 import subprocess
 from collections import defaultdict
-from fnmatch import fnmatch
+from fnmatch import fnmatchcase
 from functools import lru_cache
 from itertools import cycle
 from pprint import pformat
@@ -185,9 +185,9 @@ def search(
     """Search for and run a command on services from a Python file or package."""
     services = discover_services(search_in)
     if include:
-        services = [s for s in services if fnmatch(include, s.name)]
+        services = [s for s in services if fnmatchcase(include, s.name)]
     if exclude:
-        services = [s for s in services if not fnmatch(exclude, s.name)]
+        services = [s for s in services if not fnmatchcase(exclude, s.name)]
     services_str = "\n\n".join([str(s) for s in services])
     if command:
         click.echo(
@@ -290,13 +290,14 @@ def show(service: str):
         files[f.stem].append(f)
     for f in systemd_dir.glob(f"{_SYSTEMD_FILE_PREFIX}*.timer"):
         files[f.stem].append(f)
+    files = {re.sub('^taskflow-','',k): v for k,v in files.items()}
     if service:
-        files = {k: v for k, v in files.items() if fnmatch(service, k)}
-    services = []
-    for srvs in files.values():
-        services.append("\n".join([s.read_text() for s in srvs]))
-    services = "\n\n".join(services)
-    click.echo(click.style(services, fg="cyan"))
+        files = {k: v for k, v in files.items() if fnmatchcase(service, k)}
+    colors_gen = cycle(['white','cyan'])
+    for i, srvs in enumerate(files.values()):
+        if i > 0:
+            click.echo("\n")
+        click.echo(click.style("\n\n".join([s.read_text() for s in srvs]), fg=next(colors_gen)))
 
 
 def table_column_colors():
