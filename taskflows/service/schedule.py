@@ -45,6 +45,7 @@ class Periodic(Schedule):
     relative_to: Literal["period", "finish", "start"]
 
     def __post_init__(self):
+        super().__init__()
         if self.start_on == "boot":
             # start 1 second after boot.
             self.unit_entries.add("OnBootSec=1")
