@@ -114,7 +114,7 @@ def status(service_name: str):
         proc = service_cmd(service_name=sn, command="status")
         err = proc.stderr.decode().strip()
         info = proc.stdout.decode().strip()
-        state = systemd_manager().GetUnitFileState(f"taskflow_{sn}.service").strip()
+        state = systemd_manager().GetUnitFileState(f"taskflow-{sn}.service").strip()
         print(f"----------{sn} status----------\n{state}\n{err}\n{info}\n\n")
 
 
@@ -290,14 +290,16 @@ def show(service: str):
         files[f.stem].append(f)
     for f in systemd_dir.glob(f"{_SYSTEMD_FILE_PREFIX}*.timer"):
         files[f.stem].append(f)
-    files = {re.sub('^taskflow-','',k): v for k,v in files.items()}
+    files = {re.sub("^taskflow-", "", k): v for k, v in files.items()}
     if service:
         files = {k: v for k, v in files.items() if fnmatchcase(service, k)}
-    colors_gen = cycle(['white','cyan'])
+    colors_gen = cycle(["white", "cyan"])
     for i, srvs in enumerate(files.values()):
         if i > 0:
             click.echo("\n")
-        click.echo(click.style("\n\n".join([s.read_text() for s in srvs]), fg=next(colors_gen)))
+        click.echo(
+            click.style("\n\n".join([s.read_text() for s in srvs]), fg=next(colors_gen))
+        )
 
 
 def table_column_colors():
@@ -312,8 +314,9 @@ def table_column_colors():
 
 def _service_schedules_table(running_only: bool, match: str = None) -> Table:
     timer_files = get_timer_files(match)
+    print(timer_files)
     srv_schedules = {
-        re.search(r"^taskflow_([\w-]+)", f.stem)
+        re.search(r"^taskflow-([\w-]+)", f.stem)
         .group(1): re.search(r"\[Timer\]((.|\n)+)\[", f.read_text(), re.MULTILINE)
         .group(1)
         .replace("Persistent=true", "")

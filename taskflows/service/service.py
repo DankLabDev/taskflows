@@ -358,7 +358,7 @@ def start_service(service: str):
     """
     for sf in get_service_files(service):
         logger.info("Running service: %s", sf.name)
-        #service_cmd(sf.name, "start")
+        # service_cmd(sf.name, "start")
         systemd_manager().StartUnit(sf.name, "replace")
 
 
@@ -434,7 +434,7 @@ def service_runs(match: Optional[str] = None) -> Dict[str, Dict[str, str]]:
     srv_runs = defaultdict(dict)
     # get task status.
     for info in parse_systemctl_tables(["systemctl", "--user", "list-timers"]):
-        if task_name := re.search(r"^taskflow_([\w-]+)\.timer", info["UNIT"]):
+        if task_name := re.search(r"^taskflow-([\w-]+)\.timer", info["UNIT"]):
             srv_runs[task_name.group(1)].update(
                 {
                     "Next Run": f"{info['NEXT']} ({info['LEFT']})",
@@ -444,7 +444,7 @@ def service_runs(match: Optional[str] = None) -> Dict[str, Dict[str, str]]:
     for info in parse_systemctl_tables(
         "systemctl --user list-units --type=service".split()
     ):
-        task_name = re.search(r"^taskflow_([\w-]+)\.service", info["UNIT"])
+        task_name = re.search(r"^taskflow-([\w-]+)\.service", info["UNIT"])
         if task_name and info["ACTIVE"] == "active":
             if "Last Run" in (d := srv_runs[task_name.group(1)]):
                 d["Last Run"] += " (running)"
