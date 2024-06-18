@@ -10,19 +10,19 @@ from .constraints import (
 )
 from .docker import ContainerLimits, DockerContainer, DockerImage, Ulimit, Volume
 from .schedule import Calendar, Periodic, Schedule
-from .service import (
-    DockerService,
-    Service,
-    disable_service,
-    enable_service,
-    get_service_files,
-    get_timer_files,
-    remove_service,
-    restart_service,
-    service_cmd,
-    service_runs,
+from .service import DockerService, Service
+from .utils import (
+    escape_path,
+    enable,
+    is_enabled,
     start_service,
+    restart_service,
     stop_service,
-    systemd_dir,
+    disable,
+    remove_service,
+    get_schedule_info,
+    get_units,
+    get_unit_file_states,
     systemd_manager,
+    session_dbus,
 )

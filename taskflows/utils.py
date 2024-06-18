@@ -4,10 +4,13 @@ from alert_msgs import MsgDst
 from pydantic import BaseModel, PositiveInt
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from quicklogs import get_logger
+from pathlib import Path
 
 logger = get_logger("taskflows", stdout=True)
 
 _SYSTEMD_FILE_PREFIX = "taskflow-"
+systemd_dir = Path.home().joinpath(".config", "systemd", "user")
+# systemd_dir = Path("/etc/systemd/system")
 
 
 class Config(BaseSettings):

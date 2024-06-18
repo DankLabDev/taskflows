@@ -1,30 +1,28 @@
-import re
-from collections import defaultdict
+"""
+dbus docs:
+https://www.freedesktop.org/software/systemd/man/latest/org.freedesktop.systemd1.html
+https://pkg.go.dev/github.com/coreos/go-systemd/dbus
+"""
+
 from dataclasses import dataclass
-from datetime import datetime
-from fnmatch import fnmatch
+
 from pathlib import Path
-from subprocess import run
-from time import time
 from typing import Dict, List, Literal, Optional, Sequence, Union
 
-from taskflows.utils import _SYSTEMD_FILE_PREFIX, logger
+from taskflows.utils import _SYSTEMD_FILE_PREFIX, logger, systemd_dir
 
 from .constraints import HardwareConstraint, SystemLoadConstraint
-from .docker import DockerContainer, delete_docker_container
+from .docker import DockerContainer
 from .schedule import Schedule
+from .utils import (
+    enable,
+    start_service,
+    stop_service,
+    restart_service,
+    disable,
+    remove_service,
+)
 
-
-def systemd_manager():
-    import dbus
-
-    bus = dbus.SessionBus()
-    systemd = bus.get_object("org.freedesktop.systemd1", "/org/freedesktop/systemd1")
-    return dbus.Interface(systemd, "org.freedesktop.systemd1.Manager")
-
-
-systemd_dir = Path.home().joinpath(".config", "systemd", "user")
-# systemd_dir = Path("/etc/systemd/system")
 
 ServiceT = Union[str, "Service"]
 ServicesT = Union[ServiceT, Sequence[ServiceT]]
@@ -110,7 +108,7 @@ class Service:
         self.enable()
 
     def enable(self):
-        enable_service(self.name)
+        enable(self.name)
 
     def start(self):
         start_service(self.name)
@@ -122,7 +120,7 @@ class Service:
         restart_service(self.name)
 
     def disable(self):
-        disable_service(self.name)
+        disable(self.name)
 
     def remove(self):
         remove_service(self.name)
@@ -315,222 +313,3 @@ class DockerService(Service):
                 self.container.name = self.name
             self.container.create()
         super().create()
-
-
-def escape_path(path):
-    """Escape a path so that it can be used in a systemd file."""
-    return systemd_manager().EscapePath(path)
-
-
-def enable_service(service: str):
-    """Enable currently disabled service(s).
-
-    Args:
-        service (str): Name or name pattern of service(s) to restart.
-    """
-    for sf in get_service_files(service):
-        logger.info("Enabling service: %s", sf)
-        systemd_manager().EnableUnitFiles([str(sf)], True, True)
-        # user_systemctl("enable", "--now", f"{_SYSTEMD_FILE_PREFIX}{sf}.timer")
-
-
-def is_service_enabled(service):
-    """
-    is_service_enabled method will check if service is already enabled that is passed in this method.
-    It raise exception if there is error.
-    Return value, True if service is already enabled otherwise False.
-
-    :param str service: name of the service
-    """
-    try:
-        return systemd_manager().GetUnitFileState(service) == "enabled"
-    except:
-        return False
-
-
-def start_service(service: str):
-    """
-    start method will start service that is passed in this method.
-    If service is already started then it will ignore it.
-    It raise exception if there is error
-
-    :param str service: name of the service
-    """
-    for sf in get_service_files(service):
-        logger.info("Running service: %s", sf.name)
-        # service_cmd(sf.name, "start")
-        systemd_manager().StartUnit(sf.name, "replace")
-
-
-def restart_service(service: str):
-    """Restart running service(s).
-
-    Args:
-        service (str): Name or name pattern of service(s) to restart.
-    """
-    for sf in get_service_files(service):
-        logger.info("Restarting service: %s", sf)
-        systemd_manager().RestartUnit(sf.name, "replace")
-
-
-def stop_service(service: str):
-    """Stop running service(s).
-
-    Args:
-        service (str): Name or name pattern of service(s) to stop.
-    """
-    for sf in get_service_files(service):
-        logger.info("Stopping service: %s", sf)
-        systemd_manager().StopUnit(sf.name, "replace")
-
-
-def disable_service(service: str):
-    """Disable service(s).
-
-    Args:
-        service (str): Name or name pattern of service(s) to disable.
-    """
-    for sf in get_service_files(service):
-        # user_systemctl(
-        #    "disable", "--now", f"{_SYSTEMD_FILE_PREFIX}{sf}.timer"
-        # )
-        logger.info("Stopped and disabled service: %s", sf)
-        # file = systemd_dir / f"{_SYSTEMD_FILE_PREFIX}{sf}.timer"
-        systemd_manager().DisableUnitFiles([sf.name], False)
-    # remove any failed status caused by stopping service.
-    # user_systemctl("reset-failed")
-    systemd_manager().Reload()
-
-
-def remove_service(service: str):
-    """Remove service(s).
-
-    Args:
-        service (str): Name or name pattern of service(s) to remove.
-    """
-    disable_service(service)
-    container_names = set()
-    for srv_file in get_service_files(service):
-        logger.info("Cleaning cache and runtime directories: %s.", srv_file)
-        # TODO python-dbus
-        user_systemctl("clean", srv_file.stem)
-        container_name = re.search(
-            r"docker (?:start|stop) ([\w-]+)", srv_file.read_text()
-        )
-        if container_name:
-            container_names.add(container_name.group(1))
-        # remove files.
-        logger.info("Deleting %s", srv_file)
-        srv_file.unlink()
-    for timer_file in get_timer_files(service):
-        logger.info("Deleting %s", timer_file)
-        timer_file.unlink()
-    for cname in container_names:
-        delete_docker_container(cname)
-
-
-def service_runs(match: Optional[str] = None) -> Dict[str, Dict[str, str]]:
-    """Map service name to current schedule status."""
-    srv_runs = defaultdict(dict)
-    # get task status.
-    for info in parse_systemctl_tables(["systemctl", "--user", "list-timers"]):
-        if task_name := re.search(r"^taskflow-([\w-]+)\.timer", info["UNIT"]):
-            srv_runs[task_name.group(1)].update(
-                {
-                    "Next Run": f"{info['NEXT']} ({info['LEFT']})",
-                    "Last Run": f"{info['LAST']} ({info['PASSED']})",
-                }
-            )
-    for info in parse_systemctl_tables(
-        "systemctl --user list-units --type=service".split()
-    ):
-        task_name = re.search(r"^taskflow-([\w-]+)\.service", info["UNIT"])
-        if task_name and info["ACTIVE"] == "active":
-            if "Last Run" in (d := srv_runs[task_name.group(1)]):
-                d["Last Run"] += " (running)"
-    if match:
-        srv_runs = {k: v for k, v in srv_runs.items() if fnmatch(k, match)}
-
-    def sort_key(row):
-        data = row[1]
-        if not (last_run := data.get("Last Run")) or "(running)" in last_run:
-            return time()
-        dt = re.search(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", last_run)
-        return datetime.fromisoformat(dt.group(0)).timestamp()
-
-    return dict(sorted(srv_runs.items(), key=sort_key))
-
-
-def get_service_files(match: Optional[str] = None) -> List[Path]:
-    """Get names of all services."""
-    return get_systemd_files("service", match)
-
-
-def get_timer_files(match: Optional[str] = None) -> List[Path]:
-    """Get names of all services."""
-    return get_systemd_files("timer", match)
-
-
-def get_systemd_files(
-    file_type: Literal["timer", "service"], match: Optional[str] = None
-) -> List[Path]:
-    if match is not None:
-        if not match.startswith(_SYSTEMD_FILE_PREFIX):
-            match = f"{_SYSTEMD_FILE_PREFIX}{match}"
-        if not match.endswith(file_type):
-            if not match.endswith("*"):
-                match = f"{match}*"
-            match = f"{match}.{file_type}"
-        files = list(systemd_dir.glob(match))
-    else:
-        files = list(systemd_dir.glob(f"{_SYSTEMD_FILE_PREFIX}*.{file_type}"))
-    if not files:
-        if match:
-            logger.error("No %s found matching: %s", file_type, match)
-        else:
-            logger.error("No %s found", file_type)
-    return files
-
-
-def parse_systemctl_tables(command: List[str]) -> List[Dict[str, str]]:
-    res = run(command, capture_output=True)
-    lines = res.stdout.decode().split("\n\n")[0].splitlines()
-    fields = list(re.finditer(r"[A-Z]+", lines.pop(0)))
-    lines_data = []
-    for line in lines:
-        line_data = {}
-        for next_idx, match in enumerate(fields, start=1):
-            char_start_idx = match.start()
-            if next_idx == len(fields):
-                field_text = line[char_start_idx:]
-            else:
-                field_text = line[char_start_idx : fields[next_idx].start()]
-            line_data[match.group()] = field_text.strip()
-        lines_data.append(line_data)
-    return lines_data
-
-
-def is_service_active(service):
-    """
-    is_service_active method will check if service is running or not.
-    It raise exception if there is service is not loaded
-    Return value, True if service is running otherwise False.
-    :param str service: name of the service
-    """
-    try:
-        systemd_manager().GetUnit(service)
-        return True
-    except:
-        return False
-
-
-def user_systemctl(*args):
-    """Run a systemd command as current user."""
-    return run(["systemctl", "--user", *args], capture_output=True)
-    # return run(["systemctl", *args], capture_output=True)
-
-
-def service_cmd(service_name: str, command: str):
-    if not service_name.startswith(_SYSTEMD_FILE_PREFIX):
-        service_name = f"{_SYSTEMD_FILE_PREFIX}{service_name}"
-    return user_systemctl(command, service_name)

@@ -4,7 +4,6 @@ from collections import defaultdict
 from fnmatch import fnmatchcase
 from functools import lru_cache
 from itertools import cycle
-from pprint import pformat
 from typing import List, Union
 
 import click
@@ -19,33 +18,24 @@ from .db import task_flows_db
 from .service import (
     DockerService,
     Service,
-    disable_service,
-    enable_service,
-    get_service_files,
-    get_timer_files,
+    disable,
+    enable,
     remove_service,
     restart_service,
-    service_cmd,
-    service_runs,
+    get_unit_file_states,
     start_service,
     stop_service,
-    systemd_dir,
     systemd_manager,
 )
 from .utils import _SYSTEMD_FILE_PREFIX
 
 
 def discover_services(search_in: str) -> List[Union[DockerService, Service]]:
-    """Search for services in a Python module or package."""
+    """Search for DockerService and Service instances in a Python module or package."""
     services = []
     for class_t in (DockerService, Service):
         services.extend(class_inst(class_type=class_t, search_in=search_in))
     return services
-
-
-def get_service_names():
-    """Get names of all services that have been created."""
-    return [f.stem.replace(_SYSTEMD_FILE_PREFIX, "") for f in get_service_files()]
 
 
 cli = Group("taskflows", chain=True)
@@ -93,11 +83,15 @@ def history(limit: int, match: str = None):
 
 
 @cli.command(name="list")
-def list_services():
+@click.option("--state", "-s", multiple=True, help="List services in state.")
+def list_services(state):
     """List services."""
-    services = get_service_names()
-    if services:
-        click.echo(pformat(services))
+    files = list(get_unit_file_states(states=state, unit_type="service").keys())
+    if files:
+        for f in files:
+            click.echo(
+                click.style(re.sub(f"^{_SYSTEMD_FILE_PREFIX}", "", f.stem), fg="cyan")
+            )
     else:
         click.echo(click.style("No services found.", fg="yellow"))
 
@@ -107,15 +101,16 @@ def list_services():
 def status(service_name: str):
     """Get status of service(s)."""
     if service_name:
-        service_names = [service_name]
+        service_names = [f"{_SYSTEMD_FILE_PREFIX}{service_name}.service"]
     else:
-        service_names = get_service_names()
+        service_names = [
+            f.name for f in get_unit_file_states(unit_type="service").keys()
+        ]
+    mgr = systemd_manager()
     for sn in service_names:
-        proc = service_cmd(service_name=sn, command="status")
-        err = proc.stderr.decode().strip()
-        info = proc.stdout.decode().strip()
-        state = systemd_manager().GetUnitFileState(f"taskflow-{sn}.service").strip()
-        print(f"----------{sn} status----------\n{state}\n{err}\n{info}\n\n")
+        # TODO status from get_units.
+        state = mgr.GetUnitFileState(sn).strip()
+        print(f"----------{sn} status----------\n{state}\n\n")
 
 
 @cli.command()
@@ -129,16 +124,6 @@ def schedule(match: str = None):
         Console().print(table, justify="center")
     else:
         click.echo(click.style("No services found.", fg="yellow"))
-
-
-@cli.command()
-def running():
-    """List running services."""
-    table = _service_schedules_table(running_only=True)
-    if table is not None:
-        Console().print(table, justify="center")
-    else:
-        click.echo(click.style("No services running.", fg="yellow"))
 
 
 @cli.command()
@@ -245,27 +230,27 @@ def restart(service: str):
     click.echo(click.style("Done!", fg="green"))
 
 
-@cli.command()
+@cli.command(name="enable")
 @click.argument("service")
-def enable(service: str):
+def _enable(service: str):
     """Enable currently disabled service(s).
 
     Args:
         service (str): Name or name pattern of service(s) to restart.
     """
-    enable_service(service)
+    enable(service)
     click.echo(click.style("Done!", fg="green"))
 
 
-@cli.command()
+@cli.command(name="disable")
 @click.argument("service")
-def disable(service: str):
+def _disable(service: str):
     """Disable service(s).
 
     Args:
         service (str): Name or name pattern of service(s) to disable.
     """
-    disable_service(service)
+    disable(service)
     click.echo(click.style("Done!", fg="green"))
 
 
@@ -286,13 +271,10 @@ def remove(service: str):
 def show(service: str):
     """Show services file contents."""
     files = defaultdict(list)
-    for f in systemd_dir.glob(f"{_SYSTEMD_FILE_PREFIX}*.service"):
+    for f in get_unit_file_states(unit_type="service", match=service).keys():
         files[f.stem].append(f)
-    for f in systemd_dir.glob(f"{_SYSTEMD_FILE_PREFIX}*.timer"):
+    for f in get_unit_file_states(unit_type="timer", match=service).keys():
         files[f.stem].append(f)
-    files = {re.sub("^taskflow-", "", k): v for k, v in files.items()}
-    if service:
-        files = {k: v for k, v in files.items() if fnmatchcase(service, k)}
     colors_gen = cycle(["white", "cyan"])
     for i, srvs in enumerate(files.values()):
         if i > 0:
