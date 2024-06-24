@@ -1,47 +1,45 @@
 import re
+import os
 import subprocess
 from collections import defaultdict
+from datetime import datetime
 from fnmatch import fnmatchcase
 from functools import lru_cache
 from itertools import cycle
-from typing import List, Union
+from pathlib import Path
 
 import click
+from rich.rule import Rule
 import sqlalchemy as sa
 from click.core import Group
 from dynamic_imports import class_inst
 from rich import box
 from rich.console import Console
 from rich.table import Table
+from rich.text import Text
 
 from .db import task_flows_db
-from .service import (
+from .service.service import (
     DockerService,
     Service,
-    disable,
-    enable,
-    remove_service,
-    restart_service,
+    _disable_service,
+    _enable_service,
+    _remove_service,
+    _start_service,
+    _restart_service,
+    _stop_service,
     get_unit_file_states,
-    start_service,
-    stop_service,
-    systemd_manager,
+    get_unit_files,
+    get_schedule_info,
+    get_units,
 )
 from .utils import _SYSTEMD_FILE_PREFIX
-
-
-def discover_services(search_in: str) -> List[Union[DockerService, Service]]:
-    """Search for DockerService and Service instances in a Python module or package."""
-    services = []
-    for class_t in (DockerService, Service):
-        services.extend(class_inst(class_type=class_t, search_in=search_in))
-    return services
 
 
 cli = Group("taskflows", chain=True)
 
 
-@cli.command()
+@cli.command
 @click.option(
     "-l",
     "--limit",
@@ -84,49 +82,94 @@ def history(limit: int, match: str = None):
 
 @cli.command(name="list")
 @click.option("--state", "-s", multiple=True, help="List services in state.")
-def list_services(state):
+@click.option("--match", "-m", help="Match service name or service name pattern.")
+def list_services(state, match):
     """List services."""
-    files = list(get_unit_file_states(states=state, unit_type="service").keys())
+    files = get_unit_files(states=state, match=match, unit_type="service")
     if files:
         for f in files:
             click.echo(
-                click.style(re.sub(f"^{_SYSTEMD_FILE_PREFIX}", "", f.stem), fg="cyan")
+                click.style(
+                    re.sub(f"^{_SYSTEMD_FILE_PREFIX}", "", Path(f).stem), fg="cyan"
+                )
             )
     else:
         click.echo(click.style("No services found.", fg="yellow"))
 
 
 @cli.command
-@click.argument("service_name", required=False)
-def status(service_name: str):
-    """Get status of service(s)."""
-    if service_name:
-        service_names = [f"{_SYSTEMD_FILE_PREFIX}{service_name}.service"]
-    else:
-        service_names = [
-            f.name for f in get_unit_file_states(unit_type="service").keys()
-        ]
-    mgr = systemd_manager()
-    for sn in service_names:
-        # TODO status from get_units.
-        state = mgr.GetUnitFileState(sn).strip()
-        print(f"----------{sn} status----------\n{state}\n\n")
-
-
-@cli.command()
 @click.option(
     "-m", "--match", help="Only show for this service name or service name pattern."
 )
-def schedule(match: str = None):
-    """List service schedules."""
-    table = _service_schedules_table(running_only=False, match=match)
-    if table is not None:
-        Console().print(table, justify="center")
-    else:
+def status(match: str):
+    """Get status of service(s)."""
+    file_states = get_unit_file_states(unit_type="service", match=match)
+    if not file_states:
         click.echo(click.style("No services found.", fg="yellow"))
+        return
+    units_meta = defaultdict(dict)
+    for file_path, enabled_status in file_states.items():
+        unit_file = os.path.basename(file_path)
+        unit_meta = units_meta[unit_file]
+        unit_meta["Enabled"] = enabled_status
+    for unit_name, data in units_meta.items():
+        data.update(get_schedule_info(unit_name))
+    units = get_units(
+        unit_type="service",
+        match=match,
+        states=None,
+    )
+    for unit in units:
+        units_meta[unit["unit_name"]].update(unit)
+    for unit_name, data in units_meta.items():
+        data["Service"] = unit_name.replace(".service", "").replace(
+            _SYSTEMD_FILE_PREFIX, ""
+        )
+    columns = [
+        "Service",
+        "Description",
+        "Enabled",
+        "Load State",
+        "Active State",
+        "Sub State",
+        "Last Start",
+        "Last Finish",
+        "Next Start",
+        "Timers",
+    ]
+    table = Table(box=box.SQUARE_DOUBLE_HEAD)
+    column_color = table_column_colors()
+    for col in columns:
+        table.add_column(
+            col.replace("_", " ").title(),
+            style=column_color(col),
+            justify="center",
+            no_wrap=False,
+            overflow="fold",
+        )
+    for row in units_meta.values():
+        row["Timers"] = "".join(
+            [f"{t['base']}({t['spec']})" for t in row["Timers Calendar"]]
+            + [f"{t['base']}({t['offset']})" for t in row["Timers Monotonic"]]
+        )
+        for dt_col in (
+            "Last Start",
+            "Last Finish",
+            "Next Start",
+        ):
+            if isinstance(row[dt_col], datetime):
+                row[dt_col] = row[dt_col].strftime("%Y-%m-%d %H:%M:%S")
+        for k, v in row.items():
+            if v is None:
+                row[k] = "-"
+        table.add_row(
+            *[Text(str(row.get(c, "-")), overflow="fold") for c in columns],
+            Rule(style="dim"),
+        )
+    Console().print(table, justify="center")
 
 
-@cli.command()
+@cli.command
 @click.argument("service_name")
 def logs(service_name: str):
     """Show logs for a service."""
@@ -141,14 +184,8 @@ def logs(service_name: str):
     )
 
 
-@cli.command()
+@cli.command
 @click.argument("search-in")
-@click.option(
-    "-c",
-    "--command",
-    type=str,
-    help="Command that should be ran on discovered services (e.g. create, enable, disable, remove, restart, run, stop).",
-)
 @click.option(
     "-i",
     "--include",
@@ -161,126 +198,127 @@ def logs(service_name: str):
     type=str,
     help="Name or glob pattern of services that should be excluded.",
 )
-def search(
+def create(
     search_in,
-    command,
     include,
     exclude,
 ):
-    """Search for and run a command on services from a Python file or package."""
-    services = discover_services(search_in)
+    """Create services found in a Python file or package."""
+    services = []
+    for class_t in (DockerService, Service):
+        services.extend(class_inst(class_type=class_t, search_in=search_in))
     if include:
         services = [s for s in services if fnmatchcase(include, s.name)]
     if exclude:
         services = [s for s in services if not fnmatchcase(exclude, s.name)]
     services_str = "\n\n".join([str(s) for s in services])
-    if command:
-        click.echo(
-            click.style(
-                f"{command.title()}ing {len(services)} service(s) from {search_in}:\n{services_str}",
-                fg="cyan",
-            )
+    click.echo(
+        click.style(
+            f"Creating {len(services)} service(s) from {search_in}",
+            fg="green",
+            bold=True,
         )
-        for srv in services:
-            getattr(srv, command)()
-        systemd_manager().Reload()
-    else:
-        click.echo(
-            click.style(
-                f"Found {len(services)} service(s) from {search_in}:\n{services_str}",
-                fg="cyan",
-            )
-        )
-    click.echo(click.style("Done!", fg="green"))
-
-
-@cli.command()
-@click.argument("service")
-def start(service: str):
-    """Start service(s).
-
-    Args:
-        service (str): Name or name pattern of service(s) to start.
-    """
-    start_service(service)
-    click.echo(click.style("Done!", fg="green"))
-
-
-@cli.command()
-@click.argument("service")
-def stop(service: str):
-    """Stop running service(s).
-
-    Args:
-        service (str): Name or name pattern of service(s) to stop.
-    """
-    stop_service(service)
-    click.echo(click.style("Done!", fg="green"))
-
-
-@cli.command()
-@click.argument("service")
-def restart(service: str):
-    """Restart running service(s).
-
-    Args:
-        service (str): Name or name pattern of service(s) to restart.
-    """
-    restart_service(service)
-    click.echo(click.style("Done!", fg="green"))
-
-
-@cli.command(name="enable")
-@click.argument("service")
-def _enable(service: str):
-    """Enable currently disabled service(s).
-
-    Args:
-        service (str): Name or name pattern of service(s) to restart.
-    """
-    enable(service)
-    click.echo(click.style("Done!", fg="green"))
-
-
-@cli.command(name="disable")
-@click.argument("service")
-def _disable(service: str):
-    """Disable service(s).
-
-    Args:
-        service (str): Name or name pattern of service(s) to disable.
-    """
-    disable(service)
-    click.echo(click.style("Done!", fg="green"))
-
-
-@cli.command()
-@click.argument("service")
-def remove(service: str):
-    """Remove service(s).
-
-    Args:
-        service (str): Name or name pattern of service(s) to remove.
-    """
-    remove_service(service)
+    )
+    click.echo(click.style(f"\n{services_str}", fg="cyan"))
+    for srv in services:
+        srv.create()
+    # systemd_manager().Reload()
     click.echo(click.style("Done!", fg="green"))
 
 
 @cli.command
-@click.argument("service", required=False)
-def show(service: str):
+@click.argument("match")
+def start(match: str):
+    """Start services(s).
+
+    Args:
+        match (str): Name or pattern of services(s) to start.
+    """
+    _start_service(get_unit_files(match=match))
+    click.echo(click.style("Done!", fg="green"))
+
+
+@cli.command
+@click.argument("match")
+def stop(match: str):
+    """Stop running service(s).
+
+    Args:
+        match (str): Name or name pattern of service(s) to stop.
+    """
+    _stop_service(get_unit_files(match=match))
+    click.echo(click.style("Done!", fg="green"))
+
+
+@cli.command
+@click.argument("match")
+def restart(match: str):
+    """Restart running service(s).
+
+    Args:
+        match (str): Name or name pattern of service(s) to restart.
+    """
+    _restart_service(get_unit_files(match=match))
+    click.echo(click.style("Done!", fg="green"))
+
+
+@cli.command
+@click.argument("match", required=False)
+def enable(match: str):
+    """Enable currently disabled services(s).
+    Equivalent to `systemctl --user enable --now my.timer`
+
+    Args:
+        match (str): Name or pattern of services(s) to enable.
+    """
+    _enable_service(get_unit_files(match=match))
+    click.echo(click.style("Done!", fg="green"))
+
+
+@cli.command
+@click.argument("match", required=False)
+def disable(match: str):
+    """Disable services(s).
+
+    Args:
+        match (str): Name or pattern of services(s) to disable.
+    """
+    _disable_service(get_unit_files(match=match))
+    click.echo(click.style("Done!", fg="green"))
+
+
+@cli.command
+@click.argument("match")
+def remove(match: str):
+    """Remove service(s).
+
+    Args:
+        match (str): Name or name pattern of service(s) to remove.
+    """
+    _remove_service(
+        service_files=get_unit_files(unit_type="service", match=match),
+        timer_files=get_unit_files(unit_type="timer", match=match),
+    )
+    click.echo(click.style("Done!", fg="green"))
+
+
+@cli.command
+@click.argument("match", required=False)
+def show(match: str):
     """Show services file contents."""
     files = defaultdict(list)
-    for f in get_unit_file_states(unit_type="service", match=service).keys():
-        files[f.stem].append(f)
-    for f in get_unit_file_states(unit_type="timer", match=service).keys():
-        files[f.stem].append(f)
+    for f in get_unit_files(unit_type="service", match=match):
+        files[f.split("/")[-1]].append(f)
+    for f in get_unit_files(unit_type="timer", match=match):
+        files[f.split("/")[-1]].append(f)
     colors_gen = cycle(["white", "cyan"])
     for i, srvs in enumerate(files.values()):
         if i > 0:
             click.echo("\n")
         click.echo(
-            click.style("\n\n".join([s.read_text() for s in srvs]), fg=next(colors_gen))
+            click.style(
+                "\n\n".join([Path(s).read_text() for s in srvs]), fg=next(colors_gen)
+            )
         )
 
 
@@ -292,41 +330,3 @@ def table_column_colors():
         return next(colors_gen)
 
     return column_color
-
-
-def _service_schedules_table(running_only: bool, match: str = None) -> Table:
-    timer_files = get_timer_files(match)
-    print(timer_files)
-    srv_schedules = {
-        re.search(r"^taskflow-([\w-]+)", f.stem)
-        .group(1): re.search(r"\[Timer\]((.|\n)+)\[", f.read_text(), re.MULTILINE)
-        .group(1)
-        .replace("Persistent=true", "")
-        .strip()
-        for f in timer_files
-    }
-    srv_runs = service_runs(match)
-    if running_only:
-        srv_runs = {
-            srv_name: runs
-            for srv_name, runs in srv_runs.items()
-            if runs.get("Last Run", "").endswith("(running)")
-        }
-        srv_schedules = {
-            srv_name: sched
-            for srv_name, sched in srv_schedules.items()
-            if srv_name in srv_runs
-        }
-    srv_schedules = {k: v for k, v in srv_schedules.items() if v}
-    if not srv_schedules:
-        return
-    table = Table(box=box.SIMPLE)
-    column_color = table_column_colors()
-    for col in ("Service", "Schedule", "Next Run", "Last Run"):
-        table.add_column(col, style=column_color(col), justify="center")
-    for srv_name, sched in srv_schedules.items():
-        runs = srv_runs.get(srv_name, {})
-        table.add_row(
-            srv_name, sched, runs.get("Next Run", ""), runs.get("Last Run", "")
-        )
-    return table

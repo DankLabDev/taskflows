@@ -5,24 +5,30 @@ https://pkg.go.dev/github.com/coreos/go-systemd/dbus
 """
 
 from dataclasses import dataclass
-
 from pathlib import Path
 from typing import Dict, List, Literal, Optional, Sequence, Union
+import re
+import os
+from functools import cache
+from datetime import datetime
+from pprint import pformat
+
 
 from taskflows.utils import _SYSTEMD_FILE_PREFIX, logger, systemd_dir
 
 from .constraints import HardwareConstraint, SystemLoadConstraint
 from .docker import DockerContainer
 from .schedule import Schedule
-from .utils import (
-    enable,
-    start_service,
-    stop_service,
-    restart_service,
-    disable,
-    remove_service,
-)
 
+try:
+    import dbus
+except ImportError:
+    logger.warning(
+        "Could not import dbus. Service functionality will not be available."
+    )
+
+
+from .docker import delete_docker_container
 
 ServiceT = Union[str, "Service"]
 ServicesT = Union[ServiceT, Sequence[ServiceT]]
@@ -101,31 +107,48 @@ class Service:
     env: Optional[Dict[str, str]] = None
     working_directory: Optional[Union[str, Path]] = None
 
+    def __post_init__(self):
+        self.service_files = []
+        self.timer_files = []
+
+    @property
+    def unit_files(self) -> List[str]:
+        return self.timer_files + self.service_files
+
     def create(self):
         logger.info("Creating service %s", self.name)
         self._write_timer_units()
         self._write_service_units()
-        self.enable()
-
-    def enable(self):
-        enable(self.name)
+        mgr = systemd_manager()
+        files = self.timer_files + self.service_files
+        for file in files:
+            file = os.path.basename(file)
+            # ReloadOrTryRestartUnit attempts a reload if the unit supports it and use a "Try" flavored restart otherwise.
+            logger.info("Reloading %s", file)
+            mgr.ReloadOrTryRestartUnit(file, "replace")
+        logger.info("Enabling %s", files)
+        mgr.EnableUnitFiles(files, True, True)
 
     def start(self):
-        start_service(self.name)
+        _start_service(self.unit_files)
 
     def stop(self):
-        stop_service(self.name)
+        _stop_service(self.unit_files)
 
     def restart(self):
-        restart_service(self.name)
+        _restart_service(self.service_files)
+
+    def enable(self):
+        _enable_service(self.unit_files)
 
     def disable(self):
-        disable(self.name)
+        _disable_service(self.unit_files)
 
     def remove(self):
-        remove_service(self.name)
+        _remove_service(service_files=self.service_files, timer_files=self.timer_files)
 
     def _write_timer_units(self):
+        self.timer_files = []
         for is_stop_timer, schedule in (
             (False, self.start_schedule),
             (True, self.stop_schedule),
@@ -146,7 +169,9 @@ class Service:
                 "[Install]",
                 "WantedBy=timers.target",
             ]
-            self._write_systemd_file("timer", "\n".join(content), is_stop_timer)
+            self.timer_files.append(
+                self._write_systemd_file("timer", "\n".join(content), is_stop_timer)
+            )
 
     def _write_service_units(self):
         def join(args):
@@ -225,11 +250,14 @@ class Service:
                     unit.update(slc.unit_entries)
             else:
                 unit.update(self.system_load_constraints.unit_entries)
-        service_file = self._write_service_file(unit=unit, service=service)
+        srv_file = self._write_service_file(unit=unit, service=service)
+        self.service_files = [srv_file]
         # TODO ExecCondition, ExecStartPre, ExecStartPost?
         if self.stop_schedule:
-            service = [f"ExecStart=systemctl --user stop {service_file.name}"]
-            self._write_service_file(service=service, is_stop_unit=True)
+            service = [f"ExecStart=systemctl --user stop {os.path.basename(srv_file)}"]
+            self.service_files.append(
+                self._write_service_file(service=service, is_stop_unit=True)
+            )
 
     @property
     def base_file_stem(self) -> str:
@@ -259,7 +287,7 @@ class Service:
         unit_type: Literal["timer", "service"],
         content: str,
         is_stop_unit: bool = False,
-    ) -> Path:
+    ) -> str:
         systemd_dir.mkdir(parents=True, exist_ok=True)
         file_stem = f"{_SYSTEMD_FILE_PREFIX}{self.name.replace(' ', '_')}"
         if is_stop_unit:
@@ -270,7 +298,7 @@ class Service:
         else:
             logger.info("Creating new unit: %s", file)
         file.write_text(content)
-        return file
+        return str(file)
 
     def __repr__(self):
         return str(self)
@@ -313,3 +341,213 @@ class DockerService(Service):
                 self.container.name = self.name
             self.container.create()
         super().create()
+
+
+@cache
+def session_dbus():
+    # SessionBus is for user session (like systemctl --user)
+    return dbus.SessionBus()
+
+
+@cache
+def systemd_manager():
+    bus = session_dbus()
+    # Access the systemd D-Bus object
+    systemd = bus.get_object("org.freedesktop.systemd1", "/org/freedesktop/systemd1")
+    return dbus.Interface(systemd, dbus_interface="org.freedesktop.systemd1.Manager")
+
+
+def escape_path(path) -> str:
+    """Escape a path so that it can be used in a systemd file."""
+    return systemd_manager().EscapePath(path)
+
+
+def _start_service(files: Sequence[str]):
+    mgr = systemd_manager()
+    for sf in files:
+        sf = os.path.basename(sf)
+        logger.info("Running service: %s", sf)
+        mgr.StartUnit(sf, "replace")
+
+
+def _stop_service(files: Sequence[str]):
+    mgr = systemd_manager()
+    for sf in files:
+        logger.info("Stopping service: %s", sf)
+        mgr.StopUnit(sf, "replace")
+        # remove any failed status caused by stopping service.
+        mgr.ResetFailedUnit(sf)
+
+
+def _restart_service(files: Sequence[str]):
+    mgr = systemd_manager()
+    for sf in files:
+        logger.info("Restarting service: %s", sf)
+        mgr.RestartUnit(sf, "replace")
+
+
+def _enable_service(files: Sequence[str]):
+    mgr = systemd_manager()
+    logger.info("Enabling: %s", pformat(files))
+    mgr.EnableUnitFiles(files, True, True)
+
+
+def _disable_service(files: Sequence[str]):
+    mgr = systemd_manager()
+    files = [os.path.basename(f) for f in files]
+    logger.info("Disabling: %s", pformat(files))
+    for meta in mgr.DisableUnitFiles(files, True):
+        # meta has: the type of the change (one of symlink or unlink), the file name of the symlink and the destination of the symlink.
+        logger.info("%s %s %s", *meta)
+
+
+def _remove_service(service_files: Sequence[str], timer_files: Sequence[str]):
+    container_names = set()
+    mgr = systemd_manager()
+    files = service_files + timer_files
+    mgr.DisableUnitFiles(files, False)
+    for srv_file in service_files:
+        logger.info("Cleaning cache and runtime directories: %s.", srv_file)
+        mgr.CleanUnit(srv_file.stem)
+        container_name = re.search(
+            r"docker (?:start|stop) ([\w-]+)", srv_file.read_text()
+        )
+        if container_name:
+            container_names.add(container_name.group(1))
+    for cname in container_names:
+        delete_docker_container(cname)
+    for file in files:
+        # remove files.
+        logger.info("Deleting %s", file)
+        os.remove(file)
+
+
+def get_schedule_info(timer: str):
+    # make sure this is the timer unit.
+    timer = timer.replace(".service", ".timer")
+    if not timer.endswith(".timer"):
+        timer = f"{timer}.timer"
+    if not timer.startswith(_SYSTEMD_FILE_PREFIX):
+        timer = f"{_SYSTEMD_FILE_PREFIX}{timer}"
+    manager = systemd_manager()
+    bus = session_dbus()
+    # service_path = manager.GetUnit(timer)
+    service_path = manager.LoadUnit(timer)
+    service = bus.get_object("org.freedesktop.systemd1", service_path)
+    properties = dbus.Interface(
+        service, dbus_interface="org.freedesktop.DBus.Properties"
+    )
+    schedule = {
+        # timestamp of the last time a unit entered the active state.
+        "Last Start": properties.Get(
+            "org.freedesktop.systemd1.Unit", "ActiveEnterTimestamp"
+        ),
+        # timestamp of the last time a unit exited the active state.
+        "Last Finish": properties.Get(
+            "org.freedesktop.systemd1.Unit", "ActiveExitTimestamp"
+        ),
+        "Next Start": properties.Get(
+            "org.freedesktop.systemd1.Timer", "NextElapseUSecRealtime"
+        ),
+    }
+    # "org.freedesktop.systemd1.Timer", "LastTriggerUSec"
+    missing_dt = datetime(1970, 1, 1, 0, 0, 0)
+
+    def timestamp_to_dt(timestamp):
+        try:
+            dt = datetime.fromtimestamp(timestamp / 1_000_000)
+            if dt == missing_dt:
+                return None
+            return dt
+        except ValueError:
+            # "year 586524 is out of range"
+            return None
+
+    schedule = {field: timestamp_to_dt(val) for field, val in schedule.items()}
+    # TimersCalendar contains an array of structs that contain information about all realtime/calendar timers of this timer unit. The structs contain a string identifying the timer base, which may only be "OnCalendar" for now; the calendar specification string; the next elapsation point on the CLOCK_REALTIME clock, relative to its epoch.
+    timers_cal = []
+    # for timer_type in ("TimersMonotonic", "TimersCalendar"):
+    for timer in properties.Get("org.freedesktop.systemd1.Timer", "TimersCalendar"):
+        base, spec, next_start = timer
+        timers_cal.append(
+            {
+                "base": base,
+                "spec": spec,
+                "next_start": timestamp_to_dt(next_start),
+            }
+        )
+    schedule["Timers Calendar"] = timers_cal
+    if (not schedule["Next Start"]) and (
+        next_start := [t["next_start"] for t in timers_cal if t["next_start"]]
+    ):
+        schedule["Next Start"] = min(next_start)
+    # TimersMonotonic contains an array of structs that contain information about all monotonic timers of this timer unit. The structs contain a string identifying the timer base, which is one of "OnActiveUSec", "OnBootUSec", "OnStartupUSec", "OnUnitActiveUSec", or "OnUnitInactiveUSec" which correspond to the settings of the same names in the timer unit files; the microsecond offset from this timer base in monotonic time; the next elapsation point on the CLOCK_MONOTONIC clock, relative to its epoch.
+    timers_mono = []
+    for timer in properties.Get("org.freedesktop.systemd1.Timer", "TimersMonotonic"):
+        base, offset, next_start = timer
+        timers_mono.append(
+            {
+                "base": base,
+                "offset": offset,
+                "next_start": timestamp_to_dt(next_start),
+            }
+        )
+    schedule["Timers Monotonic"] = timers_mono
+    return schedule
+
+
+def get_unit_files(
+    unit_type: Optional[Literal["service", "timer"]] = None,
+    match: Optional[str] = None,
+    states: Optional[Union[str, Sequence[str]]] = None,
+) -> List[str]:
+    file_states = get_unit_file_states(unit_type=unit_type, match=match, states=states)
+    return list(file_states.keys())
+
+
+def get_unit_file_states(
+    unit_type: Optional[Literal["service", "timer"]] = None,
+    match: Optional[str] = None,
+    states: Optional[Union[str, Sequence[str]]] = None,
+) -> Dict[str, str]:
+    states = states or []
+    pattern = _make_unit_match_pattern(unit_type=unit_type, match=match)
+    files = list(systemd_manager().ListUnitFilesByPatterns(states, [pattern]))
+    if not files:
+        logger.error("No taskflow unit files found matching: %s", pattern)
+    return {str(file): str(state) for file, state in files}
+
+
+def get_units(
+    unit_type: Optional[Literal["service", "timer"]] = None,
+    match: Optional[str] = None,
+    states: Optional[Union[str, Sequence[str]]] = None,
+) -> List[Dict[str, str]]:
+    states = states or []
+    pattern = _make_unit_match_pattern(unit_type=unit_type, match=match)
+    files = list(systemd_manager().ListUnitsByPatterns(states, [pattern]))
+    fields = [
+        "unit_name",
+        "description",
+        "load_state",
+        "active_state",
+        "sub_state",
+        "followed",
+        "unit_path",
+        "job_id",
+        "job_type",
+        "job_path",
+    ]
+    return [{k: str(v) for k, v in zip(fields, f)} for f in files]
+
+
+def _make_unit_match_pattern(
+    unit_type: Optional[Literal["service", "timer"]] = None, match: Optional[str] = None
+) -> str:
+    pattern = match or ""
+    if unit_type and not pattern.endswith(f".{unit_type}"):
+        pattern += f".{unit_type}"
+    if _SYSTEMD_FILE_PREFIX not in pattern:
+        pattern = f"*{_SYSTEMD_FILE_PREFIX}*{pattern}"
+    pattern += "*"
+    return re.sub(r"\*+", "*", pattern)
