@@ -1,12 +1,18 @@
 from datetime import datetime
-from typing import Literal
+from typing import Literal, Tuple
 
 from pydantic.dataclasses import dataclass
 
+DEFAULT_MAX_RESTART_RATE = (1000, 1)
+
 
 class Schedule:
-    def __init__(self):
-        self.unit_entries = set()
+    def __init__(self, max_restart_rate: Tuple[int,int] = DEFAULT_MAX_RESTART_RATE):
+        n_restarts, n_seconds = max_restart_rate
+        self.unit_entries = {
+            f"StartLimitIntervalSec={n_seconds}",
+            f"StartLimitBurst={n_restarts}",
+        }
 
 
 @dataclass
@@ -41,12 +47,12 @@ class Periodic(Schedule):
     start_on: Literal["boot", "login", "command"]
     # Run the service every `period` seconds.
     period: int
-    # Measure period from
-    relative_to: Literal["period", "finish", "start"]
+    # 'start': Measure period from when the service started.
+    # 'finish': Measure period from when the service last finished.
+    relative_to: Literal["finish", "start"]
 
     def __post_init__(self):
         super().__init__()
-        # TODO StartLimitIntervalSec, StartLimitBurst
         self.unit_entries.add("AccuracySec=1ms")
         if self.start_on == "boot":
             # start 1 second after boot.
@@ -54,9 +60,6 @@ class Periodic(Schedule):
         elif self.start_on == "login":
             # start 1 second after the service manager is started (which is on login).
             self.unit_entries.add("OnStartupSec=1")
-        if self.relative_to == "period":
-            # defines a timer relative to the moment the timer unit itself is activated.
-            self.unit_entries.add(f"OnActiveSec={self.period}s")
         elif self.relative_to == "start":
             # defines a timer relative to when the unit the timer unit is activating was last activated.
             self.unit_entries.add(f"OnUnitActiveSec={self.period}s")
