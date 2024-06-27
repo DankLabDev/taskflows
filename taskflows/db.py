@@ -13,6 +13,7 @@ schema_name = config.db_schema
 db_url = config.db_url
 if not db_url:
     db_dir = os.path.expanduser("~/.taskflows")
+    os.makedirs(db_dir, exist_ok=True, mode=0o755)
     db_url = f"sqlite:///{db_dir}/taskflows.sqlite"
     dialect = "sqlite"
 else:

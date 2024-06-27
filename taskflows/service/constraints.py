@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Literal, Set
 
 from pydantic import BaseModel
 
@@ -10,9 +10,10 @@ class HardwareConstraint(BaseModel):
     # abort without an error message
     silent: bool = False
 
-    def unit_entries(self) -> str:
+    @property
+    def unit_entries(self) -> Set[str]:
         action = "Constraint" if self.silent else "Assert"
-        return [f"{action}{self.__class__.__name__}={self.constraint}{self.amount}"]
+        return {f"{action}{self.__class__.__name__}={self.constraint}{self.amount}"}
 
 
 class Memory(HardwareConstraint):
@@ -38,20 +39,18 @@ class SystemLoadConstraint(BaseModel):
     # abort without an error message
     silent: bool = False
 
-    def unit_entries(self) -> str:
+    @property
+    def unit_entries(self) -> Set[str]:
         action = "Constraint" if self.silent else "Assert"
-        return [
+        return {
             f"{action}{self.__class__.__name__}={self.max_percent}%/{self.timespan}"
-        ]
+        }
 
 
-class MemoryPressure(SystemLoadConstraint):
-    ...
+class MemoryPressure(SystemLoadConstraint): ...
 
 
-class CPUPressure(SystemLoadConstraint):
-    ...
+class CPUPressure(SystemLoadConstraint): ...
 
 
-class IOPressure(SystemLoadConstraint):
-    ...
+class IOPressure(SystemLoadConstraint): ...

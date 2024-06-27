@@ -46,6 +46,8 @@ class Periodic(Schedule):
 
     def __post_init__(self):
         super().__init__()
+        # TODO StartLimitIntervalSec, StartLimitBurst
+        self.unit_entries.add("AccuracySec=1ms")
         if self.start_on == "boot":
             # start 1 second after boot.
             self.unit_entries.add("OnBootSec=1")
@@ -54,10 +56,10 @@ class Periodic(Schedule):
             self.unit_entries.add("OnStartupSec=1")
         if self.relative_to == "period":
             # defines a timer relative to the moment the timer unit itself is activated.
-            self.unit_entries.add(f"OnActiveSec={self.period}")
+            self.unit_entries.add(f"OnActiveSec={self.period}s")
         elif self.relative_to == "start":
             # defines a timer relative to when the unit the timer unit is activating was last activated.
-            self.unit_entries.add(f"OnUnitActiveSec={self.period}")
+            self.unit_entries.add(f"OnUnitActiveSec={self.period}s")
         elif self.relative_to == "finish":
             # defines a timer relative to when the unit the timer unit is activating was last deactivated.
-            self.unit_entries.add(f"OnUnitInactiveSec={self.period}")
+            self.unit_entries.add(f"OnUnitInactiveSec={self.period}s")

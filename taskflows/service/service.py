@@ -4,15 +4,14 @@ https://www.freedesktop.org/software/systemd/man/latest/org.freedesktop.systemd1
 https://pkg.go.dev/github.com/coreos/go-systemd/dbus
 """
 
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Dict, List, Literal, Optional, Sequence, Union
-import re
 import os
-from functools import cache
+import re
+from dataclasses import dataclass
 from datetime import datetime
+from functools import cache
+from pathlib import Path
 from pprint import pformat
-
+from typing import Dict, List, Literal, Optional, Sequence, Union
 
 from taskflows.utils import _SYSTEMD_FILE_PREFIX, logger, systemd_dir
 
@@ -113,38 +112,45 @@ class Service:
 
     @property
     def unit_files(self) -> List[str]:
+        """Get all service and timer files for this service."""
         return self.timer_files + self.service_files
 
     def create(self):
+        """Create this service."""
         logger.info("Creating service %s", self.name)
         self._write_timer_units()
         self._write_service_units()
         mgr = systemd_manager()
-        files = self.timer_files + self.service_files
+        files = self.unit_files
         for file in files:
             file = os.path.basename(file)
             # ReloadOrTryRestartUnit attempts a reload if the unit supports it and use a "Try" flavored restart otherwise.
             logger.info("Reloading %s", file)
             mgr.ReloadOrTryRestartUnit(file, "replace")
-        logger.info("Enabling %s", files)
-        mgr.EnableUnitFiles(files, True, True)
+        _enable_service(files)
 
     def start(self):
+        """Start this service."""
         _start_service(self.unit_files)
 
     def stop(self):
+        """Stop this service."""
         _stop_service(self.unit_files)
 
     def restart(self):
+        """Restart this service."""
         _restart_service(self.service_files)
 
     def enable(self):
+        """Enable this service."""
         _enable_service(self.unit_files)
 
     def disable(self):
+        """Disable this service."""
         _disable_service(self.unit_files)
 
     def remove(self):
+        """Remove this service."""
         _remove_service(service_files=self.service_files, timer_files=self.timer_files)
 
     def _write_timer_units(self):
@@ -366,49 +372,60 @@ def _start_service(files: Sequence[str]):
     mgr = systemd_manager()
     for sf in files:
         sf = os.path.basename(sf)
-        logger.info("Running service: %s", sf)
+        logger.info("Running: %s", sf)
         mgr.StartUnit(sf, "replace")
 
 
 def _stop_service(files: Sequence[str]):
     mgr = systemd_manager()
     for sf in files:
-        logger.info("Stopping service: %s", sf)
+        sf = os.path.basename(sf)
+        logger.info("Stopping: %s", sf)
         mgr.StopUnit(sf, "replace")
         # remove any failed status caused by stopping service.
-        mgr.ResetFailedUnit(sf)
+        # mgr.ResetFailedUnit(sf)
 
 
 def _restart_service(files: Sequence[str]):
     mgr = systemd_manager()
     for sf in files:
-        logger.info("Restarting service: %s", sf)
+        sf = os.path.basename(sf)
+        logger.info("Restarting: %s", sf)
         mgr.RestartUnit(sf, "replace")
 
 
 def _enable_service(files: Sequence[str]):
     mgr = systemd_manager()
     logger.info("Enabling: %s", pformat(files))
-    mgr.EnableUnitFiles(files, True, True)
+    # the first bool controls whether the unit shall be enabled for runtime only (true, /run), or persistently (false, /etc).
+    # The second one controls whether symlinks pointing to other units shall be replaced if necessary.
+    mgr.EnableUnitFiles(files, False, True)
 
 
 def _disable_service(files: Sequence[str]):
     mgr = systemd_manager()
     files = [os.path.basename(f) for f in files]
     logger.info("Disabling: %s", pformat(files))
-    for meta in mgr.DisableUnitFiles(files, True):
+    for meta in mgr.DisableUnitFiles(files, False):
         # meta has: the type of the change (one of symlink or unlink), the file name of the symlink and the destination of the symlink.
         logger.info("%s %s %s", *meta)
 
 
 def _remove_service(service_files: Sequence[str], timer_files: Sequence[str]):
+    service_files = [Path(f) for f in service_files]
+    timer_files = [Path(f) for f in timer_files]
+    files = service_files + timer_files
+    _stop_service(files)
+    _disable_service(files)
     container_names = set()
     mgr = systemd_manager()
-    files = service_files + timer_files
-    mgr.DisableUnitFiles(files, False)
     for srv_file in service_files:
         logger.info("Cleaning cache and runtime directories: %s.", srv_file)
-        mgr.CleanUnit(srv_file.stem)
+        try:
+            # the possible values are "configuration", "state", "logs", "cache", "runtime", "fdstore", and "all".
+            mgr.CleanUnit(srv_file.name, ["all"])
+        except dbus.exceptions.DBusException as err:
+            logger.warning("Could not clean %s: (%s) %s", srv_file, type(err), err)
         container_name = re.search(
             r"docker (?:start|stop) ([\w-]+)", srv_file.read_text()
         )
@@ -417,12 +434,12 @@ def _remove_service(service_files: Sequence[str], timer_files: Sequence[str]):
     for cname in container_names:
         delete_docker_container(cname)
     for file in files:
-        # remove files.
         logger.info("Deleting %s", file)
-        os.remove(file)
+        file.unlink()
 
 
 def get_schedule_info(timer: str):
+    """Get the schedule information for a unit."""
     # make sure this is the timer unit.
     timer = timer.replace(".service", ".timer")
     if not timer.endswith(".timer"):
@@ -501,6 +518,7 @@ def get_unit_files(
     match: Optional[str] = None,
     states: Optional[Union[str, Sequence[str]]] = None,
 ) -> List[str]:
+    """Get a list of paths of taskflow unit files."""
     file_states = get_unit_file_states(unit_type=unit_type, match=match, states=states)
     return list(file_states.keys())
 
@@ -510,6 +528,7 @@ def get_unit_file_states(
     match: Optional[str] = None,
     states: Optional[Union[str, Sequence[str]]] = None,
 ) -> Dict[str, str]:
+    """Map taskflow unit file path to unit state."""
     states = states or []
     pattern = _make_unit_match_pattern(unit_type=unit_type, match=match)
     files = list(systemd_manager().ListUnitFilesByPatterns(states, [pattern]))
@@ -523,6 +542,7 @@ def get_units(
     match: Optional[str] = None,
     states: Optional[Union[str, Sequence[str]]] = None,
 ) -> List[Dict[str, str]]:
+    """Get metadata for taskflow units."""
     states = states or []
     pattern = _make_unit_match_pattern(unit_type=unit_type, match=match)
     files = list(systemd_manager().ListUnitsByPatterns(states, [pattern]))
