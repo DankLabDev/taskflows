@@ -67,8 +67,8 @@ see [Calendar](taskflows/service/schedule.py#14) for more options.
 ```python
 srv = Service(
     name="something",
-    command="docker start something",
-    schedule=Calendar("Mon-Sun 14:00 America/New_York"),
+    start_command="docker start something",
+    start_schedule=Calendar("Mon-Sun 14:00 America/New_York"),
 )
 ```
 #### Run command once at half an hour from now.
@@ -76,8 +76,8 @@ srv = Service(
 run_time = datetime.now() + timedelta(minutes=30)
 srv = Service(
     name='write-message',
-    command="bash -c 'echo hello >> hello.txt'",
-    schedule=Calendar.from_datetime(run_time),
+    start_command="bash -c 'echo hello >> hello.txt'",
+    start_schedule=Calendar.from_datetime(run_time),
 )
 ```
 #### Run command after system boot, then again every 5 minutes after start of previous run. Skip run if CPU usage is over 80% for the last 5 minutes.
@@ -85,8 +85,8 @@ see [Periodic](taskflows/service/schedule.py#34) and [constraints](taskflows/ser
 ```python
 Service(
     name="my-periodic-task",
-    command="docker start something",
-    schedule=Periodic(start_on="boot", period=60*5, relative_to="start"),
+    start_command="docker start something",
+    start_schedule=Periodic(start_on="boot", period=60*5, relative_to="start"),
     system_load_constraints=CPUPressure(max_percent=80, timespan="5min", silent=True)
 )
 ```
