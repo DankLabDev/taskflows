@@ -111,8 +111,6 @@ def status(match: str):
         unit_meta = units_meta[unit_file]
         unit_meta["Enabled"] = enabled_status
         manager.LoadUnit(unit_file)
-    for unit_name, data in units_meta.items():
-        data.update(get_schedule_info(unit_name))
     units = get_units(
         unit_type="service",
         match=match,
@@ -121,7 +119,10 @@ def status(match: str):
     for unit in units:
         units_meta[unit["unit_name"]].update(unit)
     for unit_name, data in units_meta.items():
+        data.update(get_schedule_info(unit_name))
+    for unit_name, data in units_meta.items():
         data["Service"] = extract_service_name(unit_name)
+    units_meta = {k: v for k, v in units_meta.items() if v["load_state"] != "not-found"}
     columns = [
         "Service",
         "description",
