@@ -6,8 +6,8 @@ from pydantic.dataclasses import dataclass
 
 class Schedule:
     """Base class for schedules."""
-    def __init__(self):
-        self.unit_entries = {f"AccuracySec={self.accuracy}"}
+    def __init__(self, accuracy: str):
+        self.unit_entries = {f"AccuracySec={accuracy}"}
 
 @dataclass
 class Calendar(Schedule):
@@ -27,7 +27,7 @@ class Calendar(Schedule):
     accuracy: str = "1ms"
 
     def __post_init__(self):
-        super().__init__()
+        super().__init__(self.accuracy)
         self.unit_entries.add(f"OnCalendar={self.schedule}")
         if self.persistent:
             self.unit_entries.add("Persistent=true")
@@ -54,7 +54,7 @@ class Periodic(Schedule):
     accuracy: str = "1ms"
 
     def __post_init__(self):
-        super().__init__()
+        super().__init__(self.accuracy)
         # start on
         if self.start_on == "boot":
             # start 1 second after boot.
