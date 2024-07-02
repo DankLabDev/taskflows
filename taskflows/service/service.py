@@ -6,12 +6,14 @@ https://pkg.go.dev/github.com/coreos/go-systemd/dbus
 
 import os
 import re
-from dataclasses import dataclass
 from datetime import datetime
 from functools import cache
 from pathlib import Path
 from pprint import pformat
-from typing import Dict, List, Literal, Optional, Sequence, Union
+from typing import Dict, List, Literal, Optional, Sequence, Set, Union
+
+from pydantic import PositiveInt
+from pydantic.dataclasses import dataclass
 
 from taskflows.utils import _SYSTEMD_FILE_PREFIX, logger, systemd_dir
 
@@ -34,6 +36,29 @@ ServicesT = Union[ServiceT, Sequence[ServiceT]]
 
 
 @dataclass
+class RestartPolicy:
+    """Service restart policy."""
+
+    policy: Literal[
+        "always",
+        "on-success",
+        "on-failure",
+        "on-abnormal",
+        "on-abort",
+        "on-watchdog",
+    ] = "always"
+    restarts_per_period: PositiveInt = 100
+    restart_period_sec: PositiveInt = 1
+
+    def unit_entries(self) -> Set[str]:
+        return {
+            f"Restart={self.policy}",
+            f"StartLimitIntervalSec={self.restart_period_sec}",
+            f"StartLimitBurst={self.restarts_per_period}",
+        }
+
+
+@dataclass
 class Service:
     """A service to run a command on a specified schedule."""
 
@@ -45,16 +70,7 @@ class Service:
     stop_schedule: Optional[Union[Schedule, Sequence[Schedule]]] = None
     kill_signal: str = "SIGTERM"
     description: Optional[str] = None
-    restart_policy: Optional[
-        Literal[
-            "always",
-            "on-success",
-            "on-failure",
-            "on-abnormal",
-            "on-abort",
-            "on-watchdog",
-        ]
-    ] = None
+    restart_policy: Optional[RestartPolicy] = None
     hardware_constraints: Optional[
         Union[HardwareConstraint, Sequence[HardwareConstraint]]
     ] = None
@@ -204,8 +220,7 @@ class Service:
             service.add(f"ExecStop={self.stop_command}")
         if self.working_directory:
             service.add(f"WorkingDirectory={self.working_directory}")
-        if self.restart_policy:
-            service.add(f"Restart={self.restart_policy}")
+
         if self.timeout:
             service.add(f"RuntimeMaxSec={self.timeout}")
         if self.env_file:
@@ -244,6 +259,8 @@ class Service:
             unit.add(f"PropagatesStopTo={join(self.propagate_stop_to)}")
         if self.propagate_stop_from:
             unit.add(f"StopPropagatedFrom={join(self.propagate_stop_from)}")
+        if self.restart_policy:
+            unit.update(self.restart_policy.unit_entries)
         if self.hardware_constraints:
             if isinstance(self.hardware_constraints, (list, tuple)):
                 for hc in self.hardware_constraints:

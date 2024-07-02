@@ -1,35 +1,38 @@
 from datetime import datetime
-from typing import Literal, Tuple
+from typing import Literal
 
 from pydantic.dataclasses import dataclass
 
-DEFAULT_MAX_RESTART_RATE = (1000, 1)
 
-
+@dataclass
 class Schedule:
-    def __init__(self, max_restart_rate: Tuple[int,int] = DEFAULT_MAX_RESTART_RATE):
-        n_restarts, n_seconds = max_restart_rate
-        self.unit_entries = {
-            f"StartLimitIntervalSec={n_seconds}",
-            f"StartLimitBurst={n_restarts}",
-        }
+    """Base class for schedules."""
+
+    # max allowed deviation from declared start time.
+    accuracy: str = "1ms"
+    unit_entries = set()
+
+    def __post_init__(self):
+        self.unit_entries.add(f"AccuracySec={self.accuracy}")
 
 
 @dataclass
 class Calendar(Schedule):
-    """Defines realtime (i.e. wallclock) timers with calendar event expressions.
+    """Run a service at specified time(s)."""
 
-    Format: DayOfWeek Year-Month-Day Hour:Minute:Second TimeZone
-    Time zone is optional.
-    Day of week. Possible values are Sun,Mon,Tue,Wed,Thu,Fri,Sat
-    Example: Sun 17:00 America/New_York
-    """
-
+    # when to start the service.
+    # Format: DayOfWeek Year-Month-Day Hour:Minute:Second TimeZone
+    # Time zone is optional. Day of week possible values are Sun,Mon,Tue,Wed,Thu,Fri,Sat
+    # Examples:
+    # Sun 17:00 America/New_York
+    # Mon-Fri 16:00
+    # Mon,Wed,Fri 16:30:30
     schedule: str
+    # if machine is down at `schedule` time, start the service as soon as machine is back up.
     persistent: bool = True
 
     def __post_init__(self):
-        super().__init__()
+        # super().__init__()
         self.unit_entries.add(f"OnCalendar={self.schedule}")
         if self.persistent:
             self.unit_entries.add("Persistent=true")
@@ -41,6 +44,8 @@ class Calendar(Schedule):
 
 @dataclass
 class Periodic(Schedule):
+    """Run a service periodically."""
+
     # 'boot': Start service when machine is booted.
     # 'login': Start service when user logs in.
     # 'command': Don't automatically start service. Only start on explicit command from user.
@@ -52,8 +57,7 @@ class Periodic(Schedule):
     relative_to: Literal["finish", "start"]
 
     def __post_init__(self):
-        super().__init__()
-        self.unit_entries.add("AccuracySec=1ms")
+        # super().__init__()
         if self.start_on == "boot":
             # start 1 second after boot.
             self.unit_entries.add("OnBootSec=1")
