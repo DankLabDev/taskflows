@@ -135,12 +135,74 @@ def status(match: str):
         "Next Start",
         "Timers",
     ]
+    column_value_colors = {
+        "Enabled": {"enabled": "green", "enabled-runtime": "yellow", "disabled": "red"},
+        "load_state": {
+            # loaded: The unit file has been successfully read and parsed by systemd, and the unit is ready to be started.
+            "loaded": "green",
+            # error: There was an error while loading the unit file, making the unit unusable.
+            "error": "red",
+            # merged: The unit file has been merged with another unit file of the same name (common for drop-in configurations).
+            "merged": "yellow",
+            # stub: The unit has been created dynamically and has no backing unit file.
+            "stub": "yellow",
+            # not-found: The unit file could not be found by systemd.
+            "not-found": "red",
+            # bad-setting: The unit file contains invalid or unsupported settings.
+            "bad-setting": "red",
+            # masked: The unit is masked, meaning it is linked to /dev/null and cannot be started.
+            "masked": "red",
+        },
+        "active_state": {
+            # active: The unit is active and running as expected.
+            "active": "green",
+            # activating: The unit is in the process of starting up.
+            "activating": "yellow",
+            # deactivating: The unit is in the process of shutting down.
+            "deactivating": "yellow",
+            # inactive: The unit is not active.
+            "inactive": "red",
+            # failed: The unit has failed.
+            "failed": "red",
+            # reloading: The unit is reloading its configuration.
+            "reloading": "yellow",
+        },
+        "sub_state": {
+            # running: The service is running and operational.
+            "running": "green",
+            # exited: The service has successfully completed its work and exited.
+            "exited": "green",
+            # waiting: The service is waiting for an event (often used with oneshot services).
+            "waiting": "yellow",
+            # start-pre: The service is in the process of executing the ExecStartPre command.
+            "start-pre": "green",
+            # start: The service is in the process of starting up.
+            "start": "green",
+            # start-post: The service is in the process of executing the ExecStartPost command.
+            "start-post": "green",
+            # reloading: The service is reloading its configuration.
+            "reloading": "yellow",
+            # stop: The service is in the process of stopping.
+            "stop": "yellow",
+            # stop-sigterm: The service is being terminated with the SIGTERM signal.
+            "stop-sigterm": "yellow",
+            # stop-sigkill: The service is being forcibly killed with the SIGKILL signal.
+            "stop-sigkill": "yellow",
+            # stop-post: The service is in the process of executing the ExecStopPost command.
+            "stop-post": "yellow",
+            # failed: The service has failed.
+            "failed": "red",
+            # auto-restart: The service is in the process of restarting automatically.
+            "auto-restart": "orange",
+            # dead: The service is not running.
+            "dead": "red",
+        },
+    }
     table = Table(box=box.SQUARE_DOUBLE_HEAD, show_lines=True)
-    column_color = table_column_colors()
     for col in columns:
         table.add_column(
             col.replace("_", " ").title(),
-            style=column_color(col),
+            style="cyan" if col not in column_value_colors else None,
             justify="center",
             no_wrap=False,
             overflow="fold",
@@ -170,7 +232,13 @@ def status(match: str):
         for col in columns:
             if (val := row.get(col)) is None:
                 val = "-"
-            row_text.append(Text(str(val), overflow="fold"))
+            row_text.append(
+                Text(
+                    str(val),
+                    overflow="fold",
+                    style=column_value_colors.get(col, {}).get(val),
+                )
+            )
         table.add_row(*row_text)
     Console().print(table, justify="center")
 
@@ -334,7 +402,13 @@ def show(match: str):
 
 def table_column_colors():
     colors_gen = cycle(
-        ["orange3", "green", "cyan", "magenta", "dodger_blue1", "yellow"]
+        [
+            "cyan",
+            "light_steel_blue",
+            "orchid",
+            "magenta",
+            "dodger_blue1",
+        ]
     )
 
     @lru_cache
