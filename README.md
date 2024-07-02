@@ -1,6 +1,6 @@
 # Task Management, Scheduling, and Alerting.
 
-Admin commands are accessed via the `taskflows` command line tool. See `taskflows --help` for complete usage.  
+Admin commands are accessed via the `tf` command line tool. See `tf --help` for complete usage.  
 
 ### Setup
 For task decorators:
