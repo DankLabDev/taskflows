@@ -4,7 +4,6 @@ from shutil import rmtree
 from time import sleep, time
 
 import pytest
-from quicklogs import get_logger
 
 from taskflows.service import Calendar, Periodic, Service, constraints
 from taskflows.service.service import systemd_dir
@@ -19,26 +18,15 @@ def log_dir():
     rmtree(d)
 
 
-@pytest.fixture
-def test_name():
-    return f"test_{int(time())}"
-
-
-@pytest.fixture
-def logger(test_name):
-    return get_logger(
-        name=test_name,
-        level="INFO",
-        stdout=True,
-        file_dir=log_dir,
-    )
+def create_test_name():
+    return f"test_{time()}".replace('.','')
 
 
 def test_config():
     v = Calendar("Sun 17:00 America/New_York")
     assert isinstance(v.unit_entries, set)
 
-    v = Periodic(start_on="boot", period=10, relative_to="period")
+    v = Periodic(start_on="boot", period=10, relative_to="start")
     assert isinstance(v.unit_entries, set)
 
     v = Periodic("login", 1, "start")
@@ -66,8 +54,10 @@ def test_config():
     assert isinstance(v.unit_entries, set)
 
 
-def test_service_management(test_name, log_dir):
+
+def test_service_management(log_dir):
     # create a minimal service.
+    test_name = create_test_name()
     log_file = (log_dir / f"{test_name}.log").resolve()
     srv = Service(
         name=test_name, start_command=f"bash -c 'echo {test_name} >> {log_file}'"
@@ -84,7 +74,8 @@ def test_service_management(test_name, log_dir):
     assert not service_file.exists()
 
 
-def test_schedule(test_name, log_dir):
+def test_schedule(log_dir):
+    test_name = create_test_name()
     log_file = (log_dir / f"{test_name}.log").resolve()
     run_time = datetime.now(timezone.utc) + timedelta(seconds=1)
     srv = Service(
@@ -100,6 +91,6 @@ def test_schedule(test_name, log_dir):
     assert not log_file.is_file()
     sleep((run_time - datetime.now(timezone.utc)).total_seconds() + 0.5)
     assert log_file.is_file()
-    assert log_file.read_text().strip() == test_name
+    assert log_file.read_text().strip() == f'{test_name}\n{test_name}'
     srv.remove()
     assert not timer_file.exists()
