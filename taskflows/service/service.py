@@ -12,7 +12,7 @@ from pathlib import Path
 from pprint import pformat
 from typing import Dict, List, Literal, Optional, Sequence, Set, Union
 
-from pydantic import PositiveInt
+from pydantic import PositiveInt, BaseModel, ConfigDict
 from pydantic.dataclasses import dataclass
 
 from taskflows.utils import _SYSTEMD_FILE_PREFIX, logger, systemd_dir
@@ -35,8 +35,8 @@ ServiceT = Union[str, "Service"]
 ServicesT = Union[ServiceT, Sequence[ServiceT]]
 
 
-@dataclass
-class RestartPolicy:
+#@dataclass
+class RestartPolicy(BaseModel):
     """Service restart policy."""
 
     policy: Literal[
@@ -57,9 +57,7 @@ class RestartPolicy:
             f"StartLimitBurst={self.restarts_per_period}",
         }
 
-
-@dataclass
-class Service:
+class Service(BaseModel):
     """A service to run a command on a specified schedule."""
 
     name: str
@@ -121,15 +119,16 @@ class Service:
     env_file: Optional[str] = None
     env: Optional[Dict[str, str]] = None
     working_directory: Optional[Union[str, Path]] = None
+    # internal usage.
+    service_files: List[str] = []
+    timer_files: List[str] = []
 
-    def __post_init__(self):
-        self.service_files = []
-        self.timer_files = []
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     @property
     def unit_files(self) -> List[str]:
         """Get all service and timer files for this service."""
-        return self.timer_files + self.service_files
+        return self.service_files + self.timer_files
 
     def create(self):
         """Create this service."""
@@ -170,7 +169,7 @@ class Service:
         _remove_service(service_files=self.service_files, timer_files=self.timer_files)
 
     def _write_timer_units(self):
-        self.timer_files = []
+        self.timer_files.clear()
         for is_stop_timer, schedule in (
             (False, self.start_schedule),
             (True, self.stop_schedule),

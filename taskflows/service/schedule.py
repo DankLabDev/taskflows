@@ -4,17 +4,10 @@ from typing import Literal
 from pydantic.dataclasses import dataclass
 
 
-@dataclass
 class Schedule:
     """Base class for schedules."""
-
-    # max allowed deviation from declared start time.
-    accuracy: str = "1ms"
-    unit_entries = set()
-
-    def __post_init__(self):
-        self.unit_entries.add(f"AccuracySec={self.accuracy}")
-
+    def __init__(self):
+        self.unit_entries = {f"AccuracySec={self.accuracy}"}
 
 @dataclass
 class Calendar(Schedule):
@@ -30,9 +23,11 @@ class Calendar(Schedule):
     schedule: str
     # if machine is down at `schedule` time, start the service as soon as machine is back up.
     persistent: bool = True
+    # max allowed deviation from declared start time.
+    accuracy: str = "1ms"
 
     def __post_init__(self):
-        # super().__init__()
+        super().__init__()
         self.unit_entries.add(f"OnCalendar={self.schedule}")
         if self.persistent:
             self.unit_entries.add("Persistent=true")
@@ -55,16 +50,20 @@ class Periodic(Schedule):
     # 'start': Measure period from when the service started.
     # 'finish': Measure period from when the service last finished.
     relative_to: Literal["finish", "start"]
+    # max allowed deviation from declared start time.
+    accuracy: str = "1ms"
 
     def __post_init__(self):
-        # super().__init__()
+        super().__init__()
+        # start on
         if self.start_on == "boot":
             # start 1 second after boot.
             self.unit_entries.add("OnBootSec=1")
         elif self.start_on == "login":
             # start 1 second after the service manager is started (which is on login).
             self.unit_entries.add("OnStartupSec=1")
-        elif self.relative_to == "start":
+        # relative_to
+        if self.relative_to == "start":
             # defines a timer relative to when the unit the timer unit is activating was last activated.
             self.unit_entries.add(f"OnUnitActiveSec={self.period}s")
         elif self.relative_to == "finish":
