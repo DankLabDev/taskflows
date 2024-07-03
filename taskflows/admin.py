@@ -84,11 +84,10 @@ def history(limit: int, match: str = None):
 
 
 @cli.command(name="list")
-@click.option("--state", "-s", multiple=True, help="List services in state.")
-@click.option("--match", "-m", help="Match service name or service name pattern.")
-def list_services(state, match):
+@click.argument("match", required=False)
+def list_services(match):
     """List services."""
-    files = get_unit_files(states=state, match=match, unit_type="service")
+    files = get_unit_files(match=match, unit_type="service")
     if files:
         srv_names = sort_service_names([extract_service_name(f) for f in files])
         for srv in srv_names:
@@ -98,8 +97,11 @@ def list_services(state, match):
 
 
 @cli.command
-@click.argument("match", required=False)
-def status(match: str):
+@click.option(
+    "-m", "--match", help="Only show history for this task name or task name pattern."
+)
+@click.option("-r", "--running", is_flag=True, help="Only show running services.")
+def status(match: str, running: bool):
     """Get status of service(s)."""
     file_states = get_unit_file_states(unit_type="service", match=match)
     if not file_states:
@@ -212,6 +214,8 @@ def status(match: str):
     assert len(srv_data) == len(units_meta)
     for srv in sort_service_names(srv_data.keys()):
         row = srv_data[srv]
+        if running and row["active_state"] != "active":
+            continue
         row["Timers"] = (
             "\n".join(
                 [f"{t['base']}({t['spec']})" for t in row.get("Timers Calendar", [])]

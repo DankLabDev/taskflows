@@ -19,7 +19,7 @@ def log_dir():
 
 
 def create_test_name():
-    return f"test_{time()}".replace('.','')
+    return f"test_{time()}".replace(".", "")
 
 
 def test_config():
@@ -52,7 +52,6 @@ def test_config():
 
     v = constraints.IOPressure(max_percent=80, timespan="10sec", silent=True)
     assert isinstance(v.unit_entries, set)
-
 
 
 def test_service_management(log_dir):
@@ -91,6 +90,6 @@ def test_schedule(log_dir):
     assert not log_file.is_file()
     sleep((run_time - datetime.now(timezone.utc)).total_seconds() + 0.5)
     assert log_file.is_file()
-    assert log_file.read_text().strip() == f'{test_name}\n{test_name}'
+    assert log_file.read_text().strip() == test_name
     srv.remove()
     assert not timer_file.exists()

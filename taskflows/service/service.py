@@ -360,13 +360,13 @@ class DockerService(Service):
             **kwargs,
         )
 
-    def create(self):
+    def create(self, defer_reload: bool = False):
         if isinstance(self.container, DockerContainer):
             if not self.container.name:
                 logger.info("Setting container name to service name: %s", self.name)
                 self.container.name = self.name
             self.container.create()
-        super().create()
+        super().create(defer_reload=defer_reload)
 
 
 @cache
@@ -396,6 +396,8 @@ def _start_service(files: Sequence[str]):
     mgr = systemd_manager()
     for sf in files:
         sf = os.path.basename(sf)
+        if re.match(r"^stop-.*\.service$", sf):
+            continue
         logger.info("Running: %s", sf)
         mgr.StartUnit(sf, "replace")
 
@@ -462,35 +464,37 @@ def _remove_service(service_files: Sequence[str], timer_files: Sequence[str]):
         file.unlink()
 
 
-def get_schedule_info(timer: str):
+def get_schedule_info(unit: str):
     """Get the schedule information for a unit."""
-    # make sure this is the timer unit.
-    timer = timer.replace(".service", ".timer")
-    if not timer.endswith(".timer"):
-        timer = f"{timer}.timer"
-    if not timer.startswith(_SYSTEMD_FILE_PREFIX):
-        timer = f"{_SYSTEMD_FILE_PREFIX}{timer}"
+    unit_stem = unit.replace(".service", "").replace(".timer", "")
+    if not unit_stem.startswith(_SYSTEMD_FILE_PREFIX):
+        unit_stem = f"{_SYSTEMD_FILE_PREFIX}{unit_stem}"
     manager = systemd_manager()
     bus = session_dbus()
-    # service_path = manager.GetUnit(timer)
-    service_path = manager.LoadUnit(timer)
+    # service_path = manager.GetUnit(f"{unit_stem}.service")
+    service_path = manager.LoadUnit(f"{unit_stem}.service")
     service = bus.get_object("org.freedesktop.systemd1", service_path)
-    properties = dbus.Interface(
+    service_properties = dbus.Interface(
         service, dbus_interface="org.freedesktop.DBus.Properties"
     )
     schedule = {
         # timestamp of the last time a unit entered the active state.
-        "Last Start": properties.Get(
+        "Last Start": service_properties.Get(
             "org.freedesktop.systemd1.Unit", "ActiveEnterTimestamp"
         ),
         # timestamp of the last time a unit exited the active state.
-        "Last Finish": properties.Get(
+        "Last Finish": service_properties.Get(
             "org.freedesktop.systemd1.Unit", "ActiveExitTimestamp"
         ),
-        "Next Start": properties.Get(
-            "org.freedesktop.systemd1.Timer", "NextElapseUSecRealtime"
-        ),
     }
+    timer_path = manager.LoadUnit(f"{unit_stem}.timer")
+    timer = bus.get_object("org.freedesktop.systemd1", timer_path)
+    timer_properties = dbus.Interface(
+        timer, dbus_interface="org.freedesktop.DBus.Properties"
+    )
+    schedule["Next Start"] = timer_properties.Get(
+        "org.freedesktop.systemd1.Timer", "NextElapseUSecRealtime"
+    )
     # "org.freedesktop.systemd1.Timer", "LastTriggerUSec"
     missing_dt = datetime(1970, 1, 1, 0, 0, 0)
 
@@ -508,7 +512,9 @@ def get_schedule_info(timer: str):
     # TimersCalendar contains an array of structs that contain information about all realtime/calendar timers of this timer unit. The structs contain a string identifying the timer base, which may only be "OnCalendar" for now; the calendar specification string; the next elapsation point on the CLOCK_REALTIME clock, relative to its epoch.
     timers_cal = []
     # for timer_type in ("TimersMonotonic", "TimersCalendar"):
-    for timer in properties.Get("org.freedesktop.systemd1.Timer", "TimersCalendar"):
+    for timer in timer_properties.Get(
+        "org.freedesktop.systemd1.Timer", "TimersCalendar"
+    ):
         base, spec, next_start = timer
         timers_cal.append(
             {
@@ -524,7 +530,9 @@ def get_schedule_info(timer: str):
         schedule["Next Start"] = min(next_start)
     # TimersMonotonic contains an array of structs that contain information about all monotonic timers of this timer unit. The structs contain a string identifying the timer base, which is one of "OnActiveUSec", "OnBootUSec", "OnStartupUSec", "OnUnitActiveUSec", or "OnUnitInactiveUSec" which correspond to the settings of the same names in the timer unit files; the microsecond offset from this timer base in monotonic time; the next elapsation point on the CLOCK_MONOTONIC clock, relative to its epoch.
     timers_mono = []
-    for timer in properties.Get("org.freedesktop.systemd1.Timer", "TimersMonotonic"):
+    for timer in timer_properties.Get(
+        "org.freedesktop.systemd1.Timer", "TimersMonotonic"
+    ):
         base, offset, next_start = timer
         timers_mono.append(
             {
