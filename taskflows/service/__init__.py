@@ -10,4 +10,4 @@ from .constraints import (
 )
 from .docker import ContainerLimits, DockerContainer, DockerImage, Ulimit, Volume
 from .schedule import Calendar, Periodic, Schedule
-from .service import DockerService, Service
+from .service import DockerService, RestartPolicy, Service

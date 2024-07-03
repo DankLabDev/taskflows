@@ -34,6 +34,7 @@ from .service.service import (
     get_unit_file_states,
     get_unit_files,
     get_units,
+    reload_unit_files,
     systemd_manager,
 )
 from .utils import _SYSTEMD_FILE_PREFIX
@@ -296,8 +297,8 @@ def create(
     )
     click.echo(click.style(f"\n{services_str}", fg="cyan"))
     for srv in services:
-        srv.create()
-    systemd_manager().Reload()
+        srv.create(defer_reload=True)
+    reload_unit_files()
     click.echo(click.style("Done!", fg="green"))
 
 

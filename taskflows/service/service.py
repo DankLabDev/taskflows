@@ -6,14 +6,12 @@ https://pkg.go.dev/github.com/coreos/go-systemd/dbus
 
 import os
 import re
+from dataclasses import dataclass
 from datetime import datetime
 from functools import cache
 from pathlib import Path
 from pprint import pformat
 from typing import Dict, List, Literal, Optional, Sequence, Set, Union
-
-from pydantic import PositiveInt, BaseModel, ConfigDict
-from pydantic.dataclasses import dataclass
 
 from taskflows.utils import _SYSTEMD_FILE_PREFIX, logger, systemd_dir
 
@@ -35,10 +33,11 @@ ServiceT = Union[str, "Service"]
 ServicesT = Union[ServiceT, Sequence[ServiceT]]
 
 
-#@dataclass
-class RestartPolicy(BaseModel):
+@dataclass
+class RestartPolicy:
     """Service restart policy."""
 
+    # conditions where the service should be restarted.
     policy: Literal[
         "always",
         "on-success",
@@ -46,18 +45,28 @@ class RestartPolicy(BaseModel):
         "on-abnormal",
         "on-abort",
         "on-watchdog",
-    ] = "always"
-    restarts_per_period: PositiveInt = 100
-    restart_period_sec: PositiveInt = 1
+    ]
+    # number of restarts allowed in specified period.
+    restarts_per_period: int = 1000
+    # period in seconds where restarts_per_period number of restarts is allowed.
+    restart_period_sec: int = 1
+    # seconds to wait before attempting restart.
+    restart_delay: Optional[int] = 1
 
+    @property
     def unit_entries(self) -> Set[str]:
-        return {
+        entries = {
             f"Restart={self.policy}",
             f"StartLimitIntervalSec={self.restart_period_sec}",
             f"StartLimitBurst={self.restarts_per_period}",
         }
+        if self.restart_delay is not None:
+            entries.add(f"RestartSec={self.restart_delay}")
+        return entries
 
-class Service(BaseModel):
+
+@dataclass
+class Service:
     """A service to run a command on a specified schedule."""
 
     name: str
@@ -119,30 +128,25 @@ class Service(BaseModel):
     env_file: Optional[str] = None
     env: Optional[Dict[str, str]] = None
     working_directory: Optional[Union[str, Path]] = None
-    # internal usage.
-    service_files: List[str] = []
-    timer_files: List[str] = []
 
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+    def __post_init__(self):
+        # internal usage.
+        self.service_files: List[str] = []
+        self.timer_files: List[str] = []
 
     @property
     def unit_files(self) -> List[str]:
         """Get all service and timer files for this service."""
         return self.service_files + self.timer_files
 
-    def create(self):
+    def create(self, defer_reload: bool = False):
         """Create this service."""
         logger.info("Creating service %s", self.name)
         self._write_timer_units()
         self._write_service_units()
-        mgr = systemd_manager()
-        files = self.unit_files
-        for file in files:
-            file = os.path.basename(file)
-            # ReloadOrTryRestartUnit attempts a reload if the unit supports it and use a "Try" flavored restart otherwise.
-            logger.info("Reloading %s", file)
-            mgr.ReloadOrTryRestartUnit(file, "replace")
-        _enable_service(files)
+        if not defer_reload:
+            reload_unit_files()
+        _enable_service(self.unit_files)
 
     def start(self):
         """Start this service."""
@@ -342,12 +346,12 @@ class DockerService(Service):
     """A service to start and stop a Docker container."""
 
     def __init__(self, container: DockerContainer | str, **kwargs):
-        cname = container if isinstance(container, str) else container.name
         self.container = container
         # for key in ("requires", "start_after"):
         #    kwargs[key] = []
         # kwargs["requires"].append("docker.service")
         # kwargs["start_after"].append("docker.service")
+        cname = container if isinstance(container, str) else container.name
         super().__init__(
             name=kwargs.get("name", cname),
             start_command=f"docker start {cname}",
@@ -377,6 +381,10 @@ def systemd_manager():
     # Access the systemd D-Bus object
     systemd = bus.get_object("org.freedesktop.systemd1", "/org/freedesktop/systemd1")
     return dbus.Interface(systemd, dbus_interface="org.freedesktop.systemd1.Manager")
+
+
+def reload_unit_files():
+    systemd_manager().Reload()
 
 
 def escape_path(path) -> str:
