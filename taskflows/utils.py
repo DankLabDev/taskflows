@@ -1,10 +1,10 @@
+from pathlib import Path
 from typing import Literal, Optional, Sequence
 
 from alert_msgs import MsgDst
 from pydantic import BaseModel, PositiveInt
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from quicklogs import get_logger
-from pathlib import Path
 
 logger = get_logger("taskflows", stdout=True)
 
@@ -20,6 +20,7 @@ class Config(BaseSettings):
     db_schema: str = "taskflows"
     fluent_bit_host: str = "localhost"
     fluent_bit_port: PositiveInt = 24224
+    display_timezone: str = "UTC"
 
     model_config = SettingsConfigDict(env_prefix="taskflows_")
 

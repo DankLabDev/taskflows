@@ -8,6 +8,7 @@ from functools import lru_cache
 from itertools import cycle
 from pathlib import Path
 from typing import List
+from zoneinfo import ZoneInfo
 
 import click
 import sqlalchemy as sa
@@ -22,7 +23,6 @@ from textdistance import lcsseq
 
 from .db import task_flows_db
 from .service.service import (
-    DockerService,
     Service,
     _disable_service,
     _enable_service,
@@ -37,7 +37,7 @@ from .service.service import (
     reload_unit_files,
     systemd_manager,
 )
-from .utils import _SYSTEMD_FILE_PREFIX
+from .utils import _SYSTEMD_FILE_PREFIX, config
 
 cli = Group("taskflows", chain=True)
 
@@ -113,6 +113,7 @@ def status(match: str, running: bool):
         unit_file = os.path.basename(file_path)
         unit_meta = units_meta[unit_file]
         unit_meta["Enabled"] = enabled_status
+        # TODO not load?
         manager.LoadUnit(unit_file)
     units = get_units(
         unit_type="service",
@@ -201,7 +202,11 @@ def status(match: str, running: bool):
             "dead": "red",
         },
     }
-    table = Table(box=box.SQUARE_DOUBLE_HEAD, show_lines=True)
+    table = Table(
+        box=box.SQUARE_DOUBLE_HEAD,
+        show_lines=True,
+        title=f"Service Status (times in {config.display_timezone})",
+    )
     for col in columns:
         table.add_column(
             col.replace("_", " ").title(),
@@ -232,7 +237,11 @@ def status(match: str, running: bool):
             "Next Start",
         ):
             if isinstance(row.get(dt_col), datetime):
-                row[dt_col] = row[dt_col].strftime("%Y-%m-%d %H:%M:%S")
+                row[dt_col] = (
+                    row[dt_col]
+                    .astimezone(ZoneInfo(config.display_timezone))
+                    .strftime("%Y-%m-%d %I:%M:%S %p")
+                )
         row_text = []
         for col in columns:
             if (val := row.get(col)) is None:
@@ -284,14 +293,11 @@ def create(
     exclude,
 ):
     """Create services found in a Python file or package."""
-    services = []
-    for class_t in (DockerService, Service):
-        services.extend(class_inst(class_type=class_t, search_in=search_in))
+    services = class_inst(class_type=Service, search_in=search_in)
     if include:
         services = [s for s in services if fnmatchcase(include, s.name)]
     if exclude:
         services = [s for s in services if not fnmatchcase(exclude, s.name)]
-    services_str = "\n\n".join([str(s) for s in services])
     click.echo(
         click.style(
             f"Creating {len(services)} service(s) from {search_in}",
@@ -299,7 +305,6 @@ def create(
             bold=True,
         )
     )
-    click.echo(click.style(f"\n{services_str}", fg="cyan"))
     for srv in services:
         srv.create(defer_reload=True)
     reload_unit_files()

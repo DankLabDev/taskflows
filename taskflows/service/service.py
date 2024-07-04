@@ -6,6 +6,7 @@ https://pkg.go.dev/github.com/coreos/go-systemd/dbus
 
 import os
 import re
+import sys
 from dataclasses import dataclass
 from datetime import datetime
 from functools import cache
@@ -13,10 +14,13 @@ from pathlib import Path
 from pprint import pformat
 from typing import Dict, List, Literal, Optional, Sequence, Set, Union
 
+from dynamic_imports import import_module
+
 from taskflows.utils import _SYSTEMD_FILE_PREFIX, logger, systemd_dir
 
 from .constraints import HardwareConstraint, SystemLoadConstraint
 from .docker import DockerContainer
+from .exec import Venv
 from .schedule import Schedule
 
 try:
@@ -55,11 +59,14 @@ class RestartPolicy:
 
     @property
     def unit_entries(self) -> Set[str]:
-        entries = {
-            f"Restart={self.policy}",
+        return {
             f"StartLimitIntervalSec={self.restart_period_sec}",
             f"StartLimitBurst={self.restarts_per_period}",
         }
+
+    @property
+    def service_entries(self) -> Set[str]:
+        entries = {f"Restart={self.policy}"}
         if self.restart_delay is not None:
             entries.add(f"RestartSec={self.restart_delay}")
         return entries
@@ -69,12 +76,23 @@ class RestartPolicy:
 class Service:
     """A service to run a command on a specified schedule."""
 
+    # name used to identify the service.
     name: str
+    # command to execute.
     start_command: str
+    # whether start_command blocks until completion.
     start_command_blocking: bool = True
+    # command to execute to stop the service command.
     stop_command: Optional[str] = None
+    # when the service should be started.
     start_schedule: Optional[Union[Schedule, Sequence[Schedule]]] = None
+    # when the service should be stopped.
     stop_schedule: Optional[Union[Schedule, Sequence[Schedule]]] = None
+    # command to execute when the service is restarted.
+    restart_command: Optional[str] = None
+    # virtual environment where commands should be executed.
+    venv: Optional[Venv] = None
+    # signal used to stop the service.
     kill_signal: str = "SIGTERM"
     description: Optional[str] = None
     restart_policy: Optional[RestartPolicy] = None
@@ -125,8 +143,11 @@ class Service:
     # Specifies a timeout (in seconds) that starts running when the queued job is actually started.
     # If limit is reached, the job will be cancelled, the unit however will not change state or even enter the "failed" mode.
     timeout: Optional[int] = None
+    # path to a file with environment variables for the service.
     env_file: Optional[str] = None
+    # environment variables for the service.
     env: Optional[Dict[str, str]] = None
+    # working directory for the service.
     working_directory: Optional[Union[str, Path]] = None
 
     def __post_init__(self):
@@ -141,7 +162,16 @@ class Service:
 
     def create(self, defer_reload: bool = False):
         """Create this service."""
-        logger.info("Creating service %s", self.name)
+        if self.venv is not None:
+            if self.start_command:
+                self.start_command = self.venv.create_env_command(self.start_command)
+            if self.stop_command:
+                self.stop_command = self.venv.create_env_command(self.stop_command)
+            if self.restart_command:
+                self.restart_command = self.venv.create_env_command(
+                    self.restart_command
+                )
+        logger.info("Creating service %s", self)
         self._write_timer_units()
         self._write_service_units()
         if not defer_reload:
@@ -221,6 +251,9 @@ class Service:
         # service.add("Type=simple")
         if self.stop_command:
             service.add(f"ExecStop={self.stop_command}")
+        if self.restart_command:
+            service.add(f"ExecReload={self.restart_command}")
+        # TODO ExecStopPost?
         if self.working_directory:
             service.add(f"WorkingDirectory={self.working_directory}")
 
@@ -264,6 +297,7 @@ class Service:
             unit.add(f"StopPropagatedFrom={join(self.propagate_stop_from)}")
         if self.restart_policy:
             unit.update(self.restart_policy.unit_entries)
+            service.update(self.restart_policy.service_entries)
         if self.hardware_constraints:
             if isinstance(self.hardware_constraints, (list, tuple)):
                 for hc in self.hardware_constraints:
@@ -342,30 +376,76 @@ class Service:
         return f"{self.__class__.__name__}({meta})"
 
 
-class DockerService(Service):
-    """A service to start and stop a Docker container."""
+class DockerStartService(Service):
+    """A service to start and stop a named/persisted Docker container.
 
-    def __init__(self, container: DockerContainer | str, **kwargs):
+    Note that service restart policy will only apply to the 'docker start' command,
+    so a separate restart policy should be applied to the container itself via Docker's restart policy feature.
+    """
+
+    def __init__(self, container: DockerContainer | str, service_name: str, **kwargs):
         self.container = container
         # for key in ("requires", "start_after"):
         #    kwargs[key] = []
         # kwargs["requires"].append("docker.service")
         # kwargs["start_after"].append("docker.service")
-        cname = container if isinstance(container, str) else container.name
+        if isinstance(self.container, DockerContainer):
+            if not self.container.name:
+                logger.info("Setting container name to service name: %s", service_name)
+                self.container.name = service_name
+            cname = self.container.name
+        else:
+            cname = container
         super().__init__(
-            name=kwargs.get("name", cname),
+            name=service_name,
             start_command=f"docker start {cname}",
             stop_command=f"docker stop {cname}",
+            restart_command=f"docker restart {cname}",
             start_command_blocking=False,
             **kwargs,
         )
 
     def create(self, defer_reload: bool = False):
         if isinstance(self.container, DockerContainer):
-            if not self.container.name:
-                logger.info("Setting container name to service name: %s", self.name)
-                self.container.name = self.name
             self.container.create()
+        super().create(defer_reload=defer_reload)
+
+
+class DockerRunService(Service):
+    """A service to run a Docker container."""
+
+    def __init__(self, container: DockerContainer | str, service_name: str, **kwargs):
+        self.container = container
+        if not self.container.name:
+            logger.info("Setting container name to service name: %s", service_name)
+            self.container.name = service_name
+        cname = self.container.name
+        super().__init__(
+            name=service_name,
+            # need to create start_command at create() time to prevent cicular import issues.
+            start_command=None,
+            stop_command=f"docker stop {cname}",
+            restart_command=f"docker restart {cname}",
+            **kwargs,
+        )
+
+    def create(self, defer_reload: bool = False):
+        def find_service_module():
+            for module in sys.modules.copy():
+                # skip internal modules
+                if module.startswith("_"):
+                    continue
+                module = import_module(module)
+                members = vars(module)
+                for var_name, var_value in members.items():
+                    if var_value is self:
+                        return module.__name__, var_name
+
+        loc = find_service_module()
+        if loc is None:
+            raise ValueError(f"Could not find service: {self}")
+        module, var_name = loc
+        self.start_command = f"_import_and_run_docker_service {module} {var_name}"
         super().create(defer_reload=defer_reload)
 
 
@@ -390,78 +470,6 @@ def reload_unit_files():
 def escape_path(path) -> str:
     """Escape a path so that it can be used in a systemd file."""
     return systemd_manager().EscapePath(path)
-
-
-def _start_service(files: Sequence[str]):
-    mgr = systemd_manager()
-    for sf in files:
-        sf = os.path.basename(sf)
-        if re.match(r"^stop-.*\.service$", sf):
-            continue
-        logger.info("Running: %s", sf)
-        mgr.StartUnit(sf, "replace")
-
-
-def _stop_service(files: Sequence[str]):
-    mgr = systemd_manager()
-    for sf in files:
-        sf = os.path.basename(sf)
-        logger.info("Stopping: %s", sf)
-        mgr.StopUnit(sf, "replace")
-        # remove any failed status caused by stopping service.
-        # mgr.ResetFailedUnit(sf)
-
-
-def _restart_service(files: Sequence[str]):
-    mgr = systemd_manager()
-    for sf in files:
-        sf = os.path.basename(sf)
-        logger.info("Restarting: %s", sf)
-        mgr.RestartUnit(sf, "replace")
-
-
-def _enable_service(files: Sequence[str]):
-    mgr = systemd_manager()
-    logger.info("Enabling: %s", pformat(files))
-    # the first bool controls whether the unit shall be enabled for runtime only (true, /run), or persistently (false, /etc).
-    # The second one controls whether symlinks pointing to other units shall be replaced if necessary.
-    mgr.EnableUnitFiles(files, False, True)
-
-
-def _disable_service(files: Sequence[str]):
-    mgr = systemd_manager()
-    files = [os.path.basename(f) for f in files]
-    logger.info("Disabling: %s", pformat(files))
-    for meta in mgr.DisableUnitFiles(files, False):
-        # meta has: the type of the change (one of symlink or unlink), the file name of the symlink and the destination of the symlink.
-        logger.info("%s %s %s", *meta)
-
-
-def _remove_service(service_files: Sequence[str], timer_files: Sequence[str]):
-    service_files = [Path(f) for f in service_files]
-    timer_files = [Path(f) for f in timer_files]
-    files = service_files + timer_files
-    _stop_service(files)
-    _disable_service(files)
-    container_names = set()
-    mgr = systemd_manager()
-    for srv_file in service_files:
-        logger.info("Cleaning cache and runtime directories: %s.", srv_file)
-        try:
-            # the possible values are "configuration", "state", "logs", "cache", "runtime", "fdstore", and "all".
-            mgr.CleanUnit(srv_file.name, ["all"])
-        except dbus.exceptions.DBusException as err:
-            logger.warning("Could not clean %s: (%s) %s", srv_file, type(err), err)
-        container_name = re.search(
-            r"docker (?:start|stop) ([\w-]+)", srv_file.read_text()
-        )
-        if container_name:
-            container_names.add(container_name.group(1))
-    for cname in container_names:
-        delete_docker_container(cname)
-    for file in files:
-        logger.info("Deleting %s", file)
-        file.unlink()
 
 
 def get_schedule_info(unit: str):
@@ -603,3 +611,75 @@ def _make_unit_match_pattern(
         pattern = f"*{_SYSTEMD_FILE_PREFIX}*{pattern}"
     pattern += "*"
     return re.sub(r"\*+", "*", pattern)
+
+
+def _start_service(files: Sequence[str]):
+    mgr = systemd_manager()
+    for sf in files:
+        sf = os.path.basename(sf)
+        if re.match(r"^stop-.*\.service$", sf):
+            continue
+        logger.info("Running: %s", sf)
+        mgr.StartUnit(sf, "replace")
+
+
+def _stop_service(files: Sequence[str]):
+    mgr = systemd_manager()
+    for sf in files:
+        sf = os.path.basename(sf)
+        logger.info("Stopping: %s", sf)
+        mgr.StopUnit(sf, "replace")
+        # remove any failed status caused by stopping service.
+        # mgr.ResetFailedUnit(sf)
+
+
+def _restart_service(files: Sequence[str]):
+    mgr = systemd_manager()
+    for sf in files:
+        sf = os.path.basename(sf)
+        logger.info("Restarting: %s", sf)
+        mgr.RestartUnit(sf, "replace")
+
+
+def _enable_service(files: Sequence[str]):
+    mgr = systemd_manager()
+    logger.info("Enabling: %s", pformat(files))
+    # the first bool controls whether the unit shall be enabled for runtime only (true, /run), or persistently (false, /etc).
+    # The second one controls whether symlinks pointing to other units shall be replaced if necessary.
+    mgr.EnableUnitFiles(files, False, True)
+
+
+def _disable_service(files: Sequence[str]):
+    mgr = systemd_manager()
+    files = [os.path.basename(f) for f in files]
+    logger.info("Disabling: %s", pformat(files))
+    for meta in mgr.DisableUnitFiles(files, False):
+        # meta has: the type of the change (one of symlink or unlink), the file name of the symlink and the destination of the symlink.
+        logger.info("%s %s %s", *meta)
+
+
+def _remove_service(service_files: Sequence[str], timer_files: Sequence[str]):
+    service_files = [Path(f) for f in service_files]
+    timer_files = [Path(f) for f in timer_files]
+    files = service_files + timer_files
+    _stop_service(files)
+    _disable_service(files)
+    container_names = set()
+    mgr = systemd_manager()
+    for srv_file in service_files:
+        logger.info("Cleaning cache and runtime directories: %s.", srv_file)
+        try:
+            # the possible values are "configuration", "state", "logs", "cache", "runtime", "fdstore", and "all".
+            mgr.CleanUnit(srv_file.name, ["all"])
+        except dbus.exceptions.DBusException as err:
+            logger.warning("Could not clean %s: (%s) %s", srv_file, type(err), err)
+        container_name = re.search(
+            r"docker (?:start|stop) ([\w-]+)", srv_file.read_text()
+        )
+        if container_name:
+            container_names.add(container_name.group(1))
+    for cname in container_names:
+        delete_docker_container(cname)
+    for file in files:
+        logger.info("Deleting %s", file)
+        file.unlink()

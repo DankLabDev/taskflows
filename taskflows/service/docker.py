@@ -408,7 +408,7 @@ class DockerContainer:
         if isinstance(self.ulimits, Ulimit):
             self.ulimits = [self.ulimits]
 
-    def create(self) -> Container:
+    def create(self, **kwargs) -> Container:
         """Create a Docker container for running a script.
 
         Args:
@@ -432,6 +432,28 @@ class DockerContainer:
         # if image is not build, it must be built.
         if isinstance(self.image, DockerImage):
             self.image.build()
+        cfg = self._params()
+        cfg.update(kwargs)
+        logger.info("Creating Docker container %s: %s", self.name, cfg)
+        return get_docker_client().containers.create(**cfg)
+
+    def run(self):
+        """Run container."""
+        cfg = self._params()
+        # use known identifier, but avoid name conflicts.
+        # cfg["name"] += f"_{int(time()*1000)}"
+        # enable auto-removal of the container on daemon side when the container’s process exits.
+        cfg["auto_remove"] = True
+        # remove the container when it has finished running.
+        cfg["remove"] = True
+        logger.info("Running Docker container: %s", cfg)
+        return get_docker_client().containers.run(**cfg)
+
+    def delete(self):
+        """Remove container."""
+        delete_docker_container(self.name)
+
+    def _params(self) -> Dict[str, Any]:
         cfg = {k: v for k, v in asdict(self).items() if v is not None}
         if cfg.get("log_config") is None:
             cfg["log_config"] = fluentd_log_driver
@@ -460,12 +482,7 @@ class DockerContainer:
             }
         if isinstance(self.image, DockerImage):
             cfg["image"] = self.image.tag
-        logger.info("Creating Docker container %s: %s", self.name, cfg)
-        return get_docker_client().containers.create(**cfg)
-
-    def delete(self):
-        """Remove container."""
-        delete_docker_container(self.name)
+        return cfg
 
 
 def delete_docker_container(container_name: str, force: bool = True) -> bool:
