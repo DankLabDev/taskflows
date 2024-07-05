@@ -151,17 +151,6 @@ class Service:
     working_directory: Optional[Union[str, Path]] = None
 
     def __post_init__(self):
-        # internal usage.
-        self.service_files: List[str] = []
-        self.timer_files: List[str] = []
-
-    @property
-    def unit_files(self) -> List[str]:
-        """Get all service and timer files for this service."""
-        return self.service_files + self.timer_files
-
-    def create(self, defer_reload: bool = False):
-        """Create this service."""
         if self.venv is not None:
             if self.start_command:
                 self.start_command = self.venv.create_env_command(self.start_command)
@@ -171,7 +160,37 @@ class Service:
                 self.restart_command = self.venv.create_env_command(
                     self.restart_command
                 )
+
+    @property
+    def timer_files(self) -> List[str]:
+        """Paths to all systemd timer unit files for this service."""
+        file_stem = self.base_file_stem
+        files = []
+        if self.start_schedule:
+            files.append(f"{file_stem}.timer")
+        if self.stop_schedule:
+            files.append(f"stop-{file_stem}.timer")
+        return [os.path.join(systemd_dir, f) for f in files]
+
+    @property
+    def service_files(self) -> List[str]:
+        """Paths to all systemd service unit files for this service."""
+        file_stem = self.base_file_stem
+        files = [f"{file_stem}.service"]
+        if self.stop_schedule:
+            files.append(f"stop-{file_stem}.service")
+        return [os.path.join(systemd_dir, f) for f in files]
+
+    @property
+    def unit_files(self) -> List[str]:
+        """Get all service and timer files for this service."""
+        return self.service_files + self.timer_files
+
+    def create(self, defer_reload: bool = False):
+        """Create this service."""
         logger.info("Creating service %s", self)
+        # remove old version of this service if it exists.
+        self.remove()
         self._write_timer_units()
         self._write_service_units()
         if not defer_reload:
@@ -203,7 +222,6 @@ class Service:
         _remove_service(service_files=self.service_files, timer_files=self.timer_files)
 
     def _write_timer_units(self):
-        self.timer_files.clear()
         for is_stop_timer, schedule in (
             (False, self.start_schedule),
             (True, self.stop_schedule),
@@ -218,15 +236,13 @@ class Service:
                 timer.update(schedule.unit_entries)
             content = [
                 "[Unit]",
-                f"Description={'stop' if is_stop_timer else ''}timer for {self.name}",
+                f"Description={'stop ' if is_stop_timer else ''}timer for {self.name}",
                 "[Timer]",
                 *timer,
                 "[Install]",
                 "WantedBy=timers.target",
             ]
-            self.timer_files.append(
-                self._write_systemd_file("timer", "\n".join(content), is_stop_timer)
-            )
+            self._write_systemd_file("timer", "\n".join(content), is_stop_timer)
 
     def _write_service_units(self):
         def join(args):
@@ -311,13 +327,10 @@ class Service:
             else:
                 unit.update(self.system_load_constraints.unit_entries)
         srv_file = self._write_service_file(unit=unit, service=service)
-        self.service_files = [srv_file]
         # TODO ExecCondition, ExecStartPre, ExecStartPost?
         if self.stop_schedule:
             service = [f"ExecStart=systemctl --user stop {os.path.basename(srv_file)}"]
-            self.service_files.append(
-                self._write_service_file(service=service, is_stop_unit=True)
-            )
+            self._write_service_file(service=service, is_stop_unit=True)
 
     @property
     def base_file_stem(self) -> str:
@@ -349,7 +362,7 @@ class Service:
         is_stop_unit: bool = False,
     ) -> str:
         systemd_dir.mkdir(parents=True, exist_ok=True)
-        file_stem = f"{_SYSTEMD_FILE_PREFIX}{self.name.replace(' ', '_')}"
+        file_stem = self.base_file_stem
         if is_stop_unit:
             file_stem = f"stop-{file_stem}"
         file = systemd_dir / f"{file_stem}.{unit_type}"
@@ -445,7 +458,10 @@ class DockerRunService(Service):
         if loc is None:
             raise ValueError(f"Could not find service: {self}")
         module, var_name = loc
-        self.start_command = f"_import_and_run_docker_service {module} {var_name}"
+        start_command = f"_import_and_run_docker_service {module} {var_name}"
+        self.start_command = (
+            self.venv.create_env_command(start_command) if self.venv else start_command
+        )
         super().create(defer_reload=defer_reload)
 
 
