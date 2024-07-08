@@ -165,7 +165,7 @@ def status(match: str, running: bool):
             # deactivating: The unit is in the process of shutting down.
             "deactivating": "yellow",
             # inactive: The unit is not active.
-            "inactive": "red",
+            "inactive": "yellow",
             # failed: The unit has failed.
             "failed": "red",
             # reloading: The unit is reloading its configuration.
@@ -199,7 +199,7 @@ def status(match: str, running: bool):
             # auto-restart: The service is in the process of restarting automatically.
             "auto-restart": "orange",
             # dead: The service is not running.
-            "dead": "red",
+            "dead": "yellow",
         },
     }
     table = Table(

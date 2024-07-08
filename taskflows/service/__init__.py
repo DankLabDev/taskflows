@@ -10,4 +10,11 @@ from .constraints import (
 from .docker import ContainerLimits, DockerContainer, DockerImage, Ulimit, Volume
 from .exec import MambaEnv, call_function
 from .schedule import Calendar, Periodic, Schedule
-from .service import DockerRunService, DockerStartService, RestartPolicy, Service
+from .service import (
+    BurstRestartPolicy,
+    DelayRestartPolicy,
+    DockerRunService,
+    DockerStartService,
+    RestartPolicy,
+    Service,
+)

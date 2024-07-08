@@ -50,25 +50,42 @@ class RestartPolicy:
         "on-abort",
         "on-watchdog",
     ]
+
+    @property
+    def unit_entries(self) -> Set[str]:
+        return set()
+
+    @property
+    def service_entries(self) -> Set[str]:
+        return {f"Restart={self.policy}"}
+
+
+@dataclass
+class DelayRestartPolicy(RestartPolicy):
+    # seconds to wait before attempting restart.
+    restart_delay: int = 1
+
+    @property
+    def service_entries(self) -> Set[str]:
+        entries = {f"RestartSec={self.restart_delay}"}
+        entries.update(super().service_entries)
+        return entries
+
+
+@dataclass
+class BurstRestartPolicy(RestartPolicy):
     # number of restarts allowed in specified period.
     restarts_per_period: int = 1000
     # period in seconds where restarts_per_period number of restarts is allowed.
     restart_period_sec: int = 1
-    # seconds to wait before attempting restart.
-    restart_delay: Optional[int] = 1
 
     @property
     def unit_entries(self) -> Set[str]:
-        return {
+        entries = {
             f"StartLimitIntervalSec={self.restart_period_sec}",
             f"StartLimitBurst={self.restarts_per_period}",
         }
-
-    @property
-    def service_entries(self) -> Set[str]:
-        entries = {f"Restart={self.policy}"}
-        if self.restart_delay is not None:
-            entries.add(f"RestartSec={self.restart_delay}")
+        entries.update(super().unit_entries)
         return entries
 
 
@@ -432,13 +449,13 @@ class DockerRunService(Service):
         if not self.container.name:
             logger.info("Setting container name to service name: %s", service_name)
             self.container.name = service_name
-        cname = self.container.name
+        # cname = self.container.name
         super().__init__(
             name=service_name,
             # need to create start_command at create() time to prevent cicular import issues.
             start_command=None,
-            stop_command=f"docker stop {cname}",
-            restart_command=f"docker restart {cname}",
+            # stop_command=f"docker stop {cname}",
+            # restart_command=f"docker restart {cname}",
             **kwargs,
         )
 

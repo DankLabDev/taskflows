@@ -150,6 +150,13 @@ fluentd_log_driver = LogConfig(
     },
 )
 
+journald_log_driver = LogConfig(
+    type=LogConfig.types.JOURNALD,
+    config={
+        "tag": "docker.{{.Name}}",
+    },
+)
+
 
 @dataclass
 class DockerContainer:
@@ -280,10 +287,7 @@ class DockerContainer:
     # Containers declared in this dict will be linked to the new
     # container using the provided alias. Default:.
     links: Optional[Dict[str, str]] = None
-    # Logging configuration. Defaults to fluentd_log_driver
-    # log_config: Optional[docker.types.LogConfig] = field(
-    #    default_factory=lambda: fluentd_log_driver
-    # )
+    # Logging configuration. Defaults to journald_log_driver
     log_config: Optional[docker.types.LogConfig] = None
     # LXC config.
     lxc_conf: Optional[dict] = None
@@ -445,7 +449,7 @@ class DockerContainer:
         # enable auto-removal of the container on daemon side when the container’s process exits.
         cfg["auto_remove"] = True
         # remove the container when it has finished running.
-        cfg["remove"] = True
+        # cfg["remove"] = True
         logger.info("Running Docker container: %s", cfg)
         return get_docker_client().containers.run(**cfg)
 
@@ -456,7 +460,7 @@ class DockerContainer:
     def _params(self) -> Dict[str, Any]:
         cfg = {k: v for k, v in asdict(self).items() if v is not None}
         if cfg.get("log_config") is None:
-            cfg["log_config"] = fluentd_log_driver
+            cfg["log_config"] = journald_log_driver
 
         env = cfg.pop("env", {})
         if env_file := cfg.pop("env_file", None):
