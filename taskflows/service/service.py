@@ -680,24 +680,49 @@ def _restart_service(files: Sequence[str]):
     for sf in files:
         sf = os.path.basename(sf)
         logger.info("Restarting: %s", sf)
-        mgr.RestartUnit(sf, "replace")
+        try:
+            mgr.RestartUnit(sf, "replace")
+        except dbus.exceptions.DBusException as err:
+            logger.warning("Could not restart %s: (%s) %s", sf, type(err), err)
 
 
 def _enable_service(files: Sequence[str]):
     mgr = systemd_manager()
     logger.info("Enabling: %s", pformat(files))
-    # the first bool controls whether the unit shall be enabled for runtime only (true, /run), or persistently (false, /etc).
-    # The second one controls whether symlinks pointing to other units shall be replaced if necessary.
-    mgr.EnableUnitFiles(files, False, True)
+
+    def enable_files(files, is_retry=False):
+        try:
+            # the first bool controls whether the unit shall be enabled for runtime only (true, /run), or persistently (false, /etc).
+            # The second one controls whether symlinks pointing to other units shall be replaced if necessary.
+            mgr.EnableUnitFiles(files, False, True)
+        except dbus.exceptions.DBusException as err:
+            logger.warning("Could not enable %s: (%s) %s", files, type(err), err)
+            if not is_retry and len(files) > 1:
+                for file in files:
+                    enable_files([file], is_retry=True)
+
+    enable_files(files)
 
 
 def _disable_service(files: Sequence[str]):
     mgr = systemd_manager()
     files = [os.path.basename(f) for f in files]
     logger.info("Disabling: %s", pformat(files))
-    for meta in mgr.DisableUnitFiles(files, False):
-        # meta has: the type of the change (one of symlink or unlink), the file name of the symlink and the destination of the symlink.
-        logger.info("%s %s %s", *meta)
+
+    def disable_files(files, is_retry=False):
+        try:
+            # the first bool controls whether the unit shall be enabled for runtime only (true, /run), or persistently (false, /etc).
+            # The second one controls whether symlinks pointing to other units shall be replaced if necessary.
+            for meta in mgr.DisableUnitFiles(files, False):
+                # meta has: the type of the change (one of symlink or unlink), the file name of the symlink and the destination of the symlink.
+                logger.info("%s %s %s", *meta)
+        except dbus.exceptions.DBusException as err:
+            logger.warning("Could not disable %s: (%s) %s", files, type(err), err)
+            if not is_retry and len(files) > 1:
+                for file in files:
+                    disable_files([file], is_retry=True)
+
+    disable_files(files)
 
 
 def _remove_service(service_files: Sequence[str], timer_files: Sequence[str]):
@@ -723,5 +748,6 @@ def _remove_service(service_files: Sequence[str], timer_files: Sequence[str]):
     for cname in container_names:
         delete_docker_container(cname)
     for file in files:
-        logger.info("Deleting %s", file)
-        file.unlink()
+        if file.exists():
+            logger.info("Deleting %s", file)
+            file.unlink()
