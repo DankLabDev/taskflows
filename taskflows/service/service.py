@@ -726,8 +726,12 @@ def _disable_service(files: Sequence[str]):
 
 
 def _remove_service(service_files: Sequence[str], timer_files: Sequence[str]):
-    service_files = [Path(f) for f in service_files]
-    timer_files = [Path(f) for f in timer_files]
+    def valid_file_paths(files):
+        files = [Path(f) for f in files]
+        return [f for f in files if f.is_file()]
+
+    service_files = valid_file_paths(service_files)
+    timer_files = valid_file_paths(timer_files)
     files = service_files + timer_files
     _stop_service(files)
     _disable_service(files)
