@@ -112,7 +112,7 @@ class Service:
     # signal used to stop the service.
     kill_signal: str = "SIGTERM"
     description: Optional[str] = None
-    restart_policy: Optional[RestartPolicy] = None
+    restart_policy: Optional[Union[str, RestartPolicy]] = None
     hardware_constraints: Optional[
         Union[HardwareConstraint, Sequence[HardwareConstraint]]
     ] = None
@@ -329,8 +329,13 @@ class Service:
         if self.propagate_stop_from:
             unit.add(f"StopPropagatedFrom={join(self.propagate_stop_from)}")
         if self.restart_policy:
-            unit.update(self.restart_policy.unit_entries)
-            service.update(self.restart_policy.service_entries)
+            restart_policy = (
+                RestartPolicy(self.restart_policy)
+                if isinstance(self.restart_policy, str)
+                else self.restart_policy
+            )
+            unit.update(restart_policy.unit_entries)
+            service.update(restart_policy.service_entries)
         if self.hardware_constraints:
             if isinstance(self.hardware_constraints, (list, tuple)):
                 for hc in self.hardware_constraints:
