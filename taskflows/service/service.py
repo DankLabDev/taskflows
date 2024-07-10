@@ -666,7 +666,11 @@ def _stop_service(files: Sequence[str]):
     for sf in files:
         sf = os.path.basename(sf)
         logger.info("Stopping: %s", sf)
-        mgr.StopUnit(sf, "replace")
+        try:
+            mgr.StopUnit(sf, "replace")
+        except dbus.exceptions.DBusException as err:
+            logger.warning("Could not stop %s: (%s) %s", sf, type(err), err)
+
         # remove any failed status caused by stopping service.
         # mgr.ResetFailedUnit(sf)
 
