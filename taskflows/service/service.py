@@ -112,7 +112,7 @@ class Service:
     # signal used to stop the service.
     kill_signal: str = "SIGTERM"
     description: Optional[str] = None
-    restart_policy: Optional[RestartPolicy] = None
+    restart_policy: Optional[Union[str, RestartPolicy]] = None
     hardware_constraints: Optional[
         Union[HardwareConstraint, Sequence[HardwareConstraint]]
     ] = None
@@ -329,8 +329,13 @@ class Service:
         if self.propagate_stop_from:
             unit.add(f"StopPropagatedFrom={join(self.propagate_stop_from)}")
         if self.restart_policy:
-            unit.update(self.restart_policy.unit_entries)
-            service.update(self.restart_policy.service_entries)
+            restart_policy = (
+                RestartPolicy(self.restart_policy)
+                if isinstance(self.restart_policy, str)
+                else self.restart_policy
+            )
+            unit.update(restart_policy.unit_entries)
+            service.update(restart_policy.service_entries)
         if self.hardware_constraints:
             if isinstance(self.hardware_constraints, (list, tuple)):
                 for hc in self.hardware_constraints:
@@ -671,7 +676,11 @@ def _stop_service(files: Sequence[str]):
     for sf in files:
         sf = os.path.basename(sf)
         logger.info("Stopping: %s", sf)
-        mgr.StopUnit(sf, "replace")
+        try:
+            mgr.StopUnit(sf, "replace")
+        except dbus.exceptions.DBusException as err:
+            logger.warning("Could not stop %s: (%s) %s", sf, type(err), err)
+
         # remove any failed status caused by stopping service.
         # mgr.ResetFailedUnit(sf)
 
@@ -681,24 +690,49 @@ def _restart_service(files: Sequence[str]):
     for sf in files:
         sf = os.path.basename(sf)
         logger.info("Restarting: %s", sf)
-        mgr.RestartUnit(sf, "replace")
+        try:
+            mgr.RestartUnit(sf, "replace")
+        except dbus.exceptions.DBusException as err:
+            logger.warning("Could not restart %s: (%s) %s", sf, type(err), err)
 
 
 def _enable_service(files: Sequence[str]):
     mgr = systemd_manager()
     logger.info("Enabling: %s", pformat(files))
-    # the first bool controls whether the unit shall be enabled for runtime only (true, /run), or persistently (false, /etc).
-    # The second one controls whether symlinks pointing to other units shall be replaced if necessary.
-    mgr.EnableUnitFiles(files, False, True)
+
+    def enable_files(files, is_retry=False):
+        try:
+            # the first bool controls whether the unit shall be enabled for runtime only (true, /run), or persistently (false, /etc).
+            # The second one controls whether symlinks pointing to other units shall be replaced if necessary.
+            mgr.EnableUnitFiles(files, False, True)
+        except dbus.exceptions.DBusException as err:
+            logger.warning("Could not enable %s: (%s) %s", files, type(err), err)
+            if not is_retry and len(files) > 1:
+                for file in files:
+                    enable_files([file], is_retry=True)
+
+    enable_files(files)
 
 
 def _disable_service(files: Sequence[str]):
     mgr = systemd_manager()
     files = [os.path.basename(f) for f in files]
     logger.info("Disabling: %s", pformat(files))
-    for meta in mgr.DisableUnitFiles(files, False):
-        # meta has: the type of the change (one of symlink or unlink), the file name of the symlink and the destination of the symlink.
-        logger.info("%s %s %s", *meta)
+
+    def disable_files(files, is_retry=False):
+        try:
+            # the first bool controls whether the unit shall be enabled for runtime only (true, /run), or persistently (false, /etc).
+            # The second one controls whether symlinks pointing to other units shall be replaced if necessary.
+            for meta in mgr.DisableUnitFiles(files, False):
+                # meta has: the type of the change (one of symlink or unlink), the file name of the symlink and the destination of the symlink.
+                logger.info("%s %s %s", *meta)
+        except dbus.exceptions.DBusException as err:
+            logger.warning("Could not disable %s: (%s) %s", files, type(err), err)
+            if not is_retry and len(files) > 1:
+                for file in files:
+                    disable_files([file], is_retry=True)
+
+    disable_files(files)
 
 
 def _remove_service(
@@ -706,9 +740,14 @@ def _remove_service(
     timer_files: Sequence[str],
     keep_containers: Sequence[str] = None,
 ):
-    service_files = [Path(f) for f in service_files]
-    timer_files = [Path(f) for f in timer_files]
+    def valid_file_paths(files):
+        files = [Path(f) for f in files]
+        return [f for f in files if f.is_file()]
+
+    service_files = valid_file_paths(service_files)
+    timer_files = valid_file_paths(timer_files)
     keep_containers = keep_containers or []
+
     files = service_files + timer_files
     _stop_service(files)
     _disable_service(files)
