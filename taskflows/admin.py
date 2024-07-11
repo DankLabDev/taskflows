@@ -197,7 +197,7 @@ def status(match: str, running: bool):
             # failed: The service has failed.
             "failed": "red",
             # auto-restart: The service is in the process of restarting automatically.
-            "auto-restart": "orange",
+            "auto-restart": "orange1",
             # dead: The service is not running.
             "dead": "yellow",
         },
