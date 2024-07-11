@@ -447,9 +447,9 @@ class DockerContainer:
         # use known identifier, but avoid name conflicts.
         # cfg["name"] += f"_{int(time()*1000)}"
         # enable auto-removal of the container on daemon side when the container’s process exits.
-        cfg["auto_remove"] = True
+        # cfg["auto_remove"] = True
         # remove the container when it has finished running.
-        # cfg["remove"] = True
+        cfg["remove"] = True
         logger.info("Running Docker container: %s", cfg)
         return get_docker_client().containers.run(**cfg)
 
