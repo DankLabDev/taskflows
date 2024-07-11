@@ -440,22 +440,32 @@ class DockerStartService(Service):
             self.container.create()
         super().create(defer_reload=defer_reload)
 
+    def remove(self):
+        """Remove this service."""
+        _remove_service(
+            service_files=self.service_files,
+            timer_files=self.timer_files,
+            keep_containers=(
+                [self.container] if isinstance(self.container, str) else None
+            ),
+        )
+
 
 class DockerRunService(Service):
     """A service to run a Docker container."""
 
-    def __init__(self, container: DockerContainer | str, service_name: str, **kwargs):
+    def __init__(self, container: DockerContainer, service_name: str, **kwargs):
         self.container = container
         if not self.container.name:
             logger.info("Setting container name to service name: %s", service_name)
             self.container.name = service_name
-        # cname = self.container.name
+        cname = self.container.name
         super().__init__(
             name=service_name,
             # need to create start_command at create() time to prevent cicular import issues.
             start_command=None,
-            # stop_command=f"docker stop {cname}",
-            # restart_command=f"docker restart {cname}",
+            stop_command=f"docker stop {cname}",
+            restart_command=f"docker restart {cname}",
             **kwargs,
         )
 
@@ -691,9 +701,14 @@ def _disable_service(files: Sequence[str]):
         logger.info("%s %s %s", *meta)
 
 
-def _remove_service(service_files: Sequence[str], timer_files: Sequence[str]):
+def _remove_service(
+    service_files: Sequence[str],
+    timer_files: Sequence[str],
+    keep_containers: Sequence[str] = None,
+):
     service_files = [Path(f) for f in service_files]
     timer_files = [Path(f) for f in timer_files]
+    keep_containers = keep_containers or []
     files = service_files + timer_files
     _stop_service(files)
     _disable_service(files)
@@ -712,7 +727,8 @@ def _remove_service(service_files: Sequence[str], timer_files: Sequence[str]):
         if container_name:
             container_names.add(container_name.group(1))
     for cname in container_names:
-        delete_docker_container(cname)
+        if cname not in keep_containers:
+            delete_docker_container(cname)
     for file in files:
         logger.info("Deleting %s", file)
         file.unlink()
