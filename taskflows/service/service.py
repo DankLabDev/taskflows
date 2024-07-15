@@ -16,7 +16,7 @@ from typing import Dict, List, Literal, Optional, Sequence, Set, Union
 
 from dynamic_imports import import_module
 
-from taskflows.utils import _SYSTEMD_FILE_PREFIX, logger, systemd_dir
+from taskflows import _SYSTEMD_FILE_PREFIX, logger
 
 from .constraints import HardwareConstraint, SystemLoadConstraint
 from .docker import DockerContainer
@@ -35,6 +35,8 @@ from .docker import delete_docker_container
 
 ServiceT = Union[str, "Service"]
 ServicesT = Union[ServiceT, Sequence[ServiceT]]
+
+systemd_dir = Path.home().joinpath(".config", "systemd", "user")
 
 
 @dataclass
@@ -161,6 +163,7 @@ class Service:
     # If limit is reached, the job will be cancelled, the unit however will not change state or even enter the "failed" mode.
     timeout: Optional[int] = None
     # path to a file with environment variables for the service.
+    # TODO LoadCredential, LoadCredentialEncrypted, SetCredentialEncrypted
     env_file: Optional[str] = None
     # environment variables for the service.
     env: Optional[Dict[str, str]] = None
@@ -210,17 +213,19 @@ class Service:
         self.remove()
         self._write_timer_units()
         self._write_service_units()
+        _enable_service(self.unit_files)
+        # start timers now.
+        _start_service(self.timer_files)
         if not defer_reload:
             reload_unit_files()
-        _enable_service(self.unit_files)
 
     def start(self):
         """Start this service."""
         _start_service(self.unit_files)
 
-    def stop(self):
+    def stop(self, timers: bool = False):
         """Stop this service."""
-        _stop_service(self.unit_files)
+        _stop_service(self.unit_files if timers else self.service_files)
 
     def restart(self):
         """Restart this service."""
@@ -289,15 +294,14 @@ class Service:
         # TODO ExecStopPost?
         if self.working_directory:
             service.add(f"WorkingDirectory={self.working_directory}")
-
         if self.timeout:
             service.add(f"RuntimeMaxSec={self.timeout}")
         if self.env_file:
             service.add(f"EnvironmentFile={self.env_file}")
         if self.env:
-            # TODO is this correct syntax?
-            env = ",".join([f"{k}={v}" for k, v in self.env.items()])
-            service.add(f"Environment={env}")
+            service.add(
+                "\n".join([f'Environment="{k}={v}"' for k, v in self.env.items()])
+            )
         if self.description:
             unit.add(f"Description={self.description}")
         if self.start_after:
@@ -418,24 +422,32 @@ class DockerStartService(Service):
     so a separate restart policy should be applied to the container itself via Docker's restart policy feature.
     """
 
-    def __init__(self, container: DockerContainer | str, service_name: str, **kwargs):
+    def __init__(self, container: DockerContainer | str, **kwargs):
         self.container = container
         # for key in ("requires", "start_after"):
         #    kwargs[key] = []
         # kwargs["requires"].append("docker.service")
         # kwargs["start_after"].append("docker.service")
-        if isinstance(self.container, DockerContainer):
-            if not self.container.name:
-                logger.info("Setting container name to service name: %s", service_name)
-                self.container.name = service_name
-            cname = self.container.name
+        # make sure container and service have the same name.
+        name = kwargs.pop("name", None)
+        if isinstance(container, str):
+            # use name of user-created container for service.
+            logger.info(
+                "Using name of user-created container (%s) for service", container
+            )
+            name = container
         else:
-            cname = container
+            if name is None:
+                name = container.name
+            else:
+                container.name = name
+            logger.info("Using name '%s' for service and container", name)
+
         super().__init__(
-            name=service_name,
-            start_command=f"docker start {cname}",
-            stop_command=f"docker stop {cname}",
-            restart_command=f"docker restart {cname}",
+            name=name,
+            start_command=f"docker start {name}",
+            stop_command=f"docker stop {name}",
+            restart_command=f"docker restart {name}",
             start_command_blocking=False,
             **kwargs,
         )
@@ -459,18 +471,19 @@ class DockerStartService(Service):
 class DockerRunService(Service):
     """A service to run a Docker container."""
 
-    def __init__(self, container: DockerContainer, service_name: str, **kwargs):
+    def __init__(self, container: DockerContainer, **kwargs):
         self.container = container
-        if not self.container.name:
-            logger.info("Setting container name to service name: %s", service_name)
-            self.container.name = service_name
-        cname = self.container.name
+        name = kwargs.pop("name", None)
+        # if both service and container have a name, use the service name for both.
+        name = name or container.name
+        logger.info("Using name '%s' for service and container", name)
+        self.container.name = name
         super().__init__(
-            name=service_name,
+            name=name,
             # need to create start_command at create() time to prevent cicular import issues.
             start_command=None,
-            stop_command=f"docker stop {cname}",
-            restart_command=f"docker restart {cname}",
+            stop_command=f"docker stop {name}",
+            restart_command=f"docker restart {name}",
             **kwargs,
         )
 

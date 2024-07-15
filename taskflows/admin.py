@@ -21,6 +21,9 @@ from rich.table import Table
 from rich.text import Text
 from textdistance import lcsseq
 
+from taskflows import _SYSTEMD_FILE_PREFIX
+
+from .config import config
 from .db import task_flows_db
 from .service.service import (
     Service,
@@ -37,7 +40,6 @@ from .service.service import (
     reload_unit_files,
     systemd_manager,
 )
-from .utils import _SYSTEMD_FILE_PREFIX, config
 
 cli = Group("taskflows", chain=True)
 
@@ -135,6 +137,7 @@ def status(match: str, running: bool):
         "active_state",
         "sub_state",
         "Last Start",
+        "Uptime",
         "Last Finish",
         "Next Start",
         "Timers",
@@ -231,6 +234,8 @@ def status(match: str, running: bool):
             )
             or "-"
         )
+        if row["active_state"] == "active" and (last_start := row.get("Last Start")):
+            row["Uptime"] = str(datetime.now() - last_start).split(".")[0]
         for dt_col in (
             "Last Start",
             "Last Finish",
@@ -242,6 +247,7 @@ def status(match: str, running: bool):
                     .astimezone(ZoneInfo(config.display_timezone))
                     .strftime("%Y-%m-%d %I:%M:%S %p")
                 )
+
         row_text = []
         for col in columns:
             if (val := row.get(col)) is None:

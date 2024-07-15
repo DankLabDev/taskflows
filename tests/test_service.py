@@ -5,9 +5,9 @@ from time import sleep, time
 
 import pytest
 
+from taskflows import _SYSTEMD_FILE_PREFIX
 from taskflows.service import Calendar, Periodic, Service, constraints
 from taskflows.service.service import systemd_dir
-from taskflows.utils import _SYSTEMD_FILE_PREFIX
 
 
 @pytest.fixture
@@ -86,7 +86,6 @@ def test_schedule(log_dir):
     timer_file = systemd_dir / f"{_SYSTEMD_FILE_PREFIX}{test_name}.timer"
     assert timer_file.is_file()
     assert len(timer_file.read_text())
-    srv.start()
     assert not log_file.is_file()
     sleep((run_time - datetime.now(timezone.utc)).total_seconds() + 0.5)
     assert log_file.is_file()

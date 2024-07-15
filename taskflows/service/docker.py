@@ -8,10 +8,14 @@ from docker.errors import ImageNotFound
 from docker.models.containers import Container
 from docker.models.images import Image
 from docker.types import LogConfig
+from docker.types.containers import LogConfigTypesEnum
 from dotenv import dotenv_values
+from pydantic import BaseModel, PositiveInt
+from pydantic_settings import SettingsConfigDict
 from xxhash import xxh32
 
-from taskflows.utils import config, logger
+from taskflows import logger
+from taskflows.config import config
 
 
 @lru_cache
@@ -99,21 +103,18 @@ class DockerImage:
             client.images.remove(self.tag, force=True)
         logger.info("Building image %s", self.tag)
         built_img, log = client.images.build(**asdict(self))
-        print(_fmt_log(log))
+        fmt_log = []
+        for row in log:
+            if "id" in row:
+                row_fmt = f"[{row['id']}][{row['status']}]"
+                if row["progress_detail"]:
+                    row_fmt += f"[{row['progress_detail']}]"
+                row_fmt += f"[{row['progress']}]"
+            elif "stream" in row:
+                fmt_log.append(row["stream"])
+        fmt_log = "".join(fmt_log)
+        logger.info(fmt_log)
         return built_img
-
-
-def _fmt_log(log) -> str:
-    fmt_log = []
-    for row in log:
-        if "id" in row:
-            row_fmt = f"[{row['id']}][{row['status']}]"
-            if row["progress_detail"]:
-                row_fmt += f"[{row['progress_detail']}]"
-            row_fmt += f"[{row['progress']}]"
-        elif "stream" in row:
-            fmt_log.append(row["stream"])
-    return "".join(fmt_log)
 
 
 @dataclass
@@ -142,20 +143,11 @@ class Ulimit:
             raise ValueError("Either `soft` limit or `hard` limit must be set.")
 
 
-fluentd_log_driver = LogConfig(
-    type=LogConfig.types.FLUENTD,
-    config={
-        "fluentd-address": f"{config.fluent_bit_host}:{config.fluent_bit_port}",
-        "tag": "docker.{{.Name}}",
-    },
-)
+class FluentBitConfig(BaseModel):
+    host: str = "0.0.0.0"  # "localhost"
+    port: PositiveInt = 24224
 
-journald_log_driver = LogConfig(
-    type=LogConfig.types.JOURNALD,
-    config={
-        "tag": "docker.{{.Name}}",
-    },
-)
+    model_config = SettingsConfigDict(env_prefix="taskflows_fluent_bit_")
 
 
 @dataclass
@@ -287,8 +279,8 @@ class DockerContainer:
     # Containers declared in this dict will be linked to the new
     # container using the provided alias. Default:.
     links: Optional[Dict[str, str]] = None
-    # Logging configuration. Defaults to journald_log_driver
-    log_config: Optional[docker.types.LogConfig] = None
+    # Logging driver: JSON, SYSLOG, JOURNALD, GELF, FLUENTD, NONE
+    log_driver: Optional[LogConfigTypesEnum] = None
     # LXC config.
     lxc_conf: Optional[dict] = None
     # MAC address to assign to the container.
@@ -459,15 +451,36 @@ class DockerContainer:
 
     def _params(self) -> Dict[str, Any]:
         cfg = {k: v for k, v in asdict(self).items() if v is not None}
-        if cfg.get("log_config") is None:
-            cfg["log_config"] = journald_log_driver
-
+        # default to JSON driver.
+        log_cfg = LogConfig(
+            type=LogConfigTypesEnum.JSON,
+            config={
+                "tag": "docker.{{.Name}}",
+                "labels": self.name,
+            },
+        )
+        log_driver = str(cfg.pop("log_driver", config.docker_log_driver))
+        if log_driver == "fluentd":
+            log_cfg.type = LogConfigTypesEnum.FLUENTD
+            fb_cfg = FluentBitConfig()
+            log_cfg.set_config_value("fluentd-address", f"{fb_cfg.host}:{fb_cfg.port}")
+        elif log_driver == "syslog":
+            log_cfg.type = LogConfigTypesEnum.SYSLOG
+        elif log_driver == "journald":
+            log_cfg.type = LogConfigTypesEnum.JOURNALD
+        elif log_driver == "gelf":
+            log_cfg.type = LogConfigTypesEnum.GELF
+        elif log_driver == "none":
+            log_cfg.type = LogConfigTypesEnum.NONE
+        else:
+            logger.error("Unknown docker log driver: %s", log_driver)
+        cfg["log_config"] = log_cfg
+        logger.info("Using log driver: %s", log_cfg)
         env = cfg.pop("env", {})
-        if env_file := cfg.pop("env_file", None):
+        if env_file := cfg.get("env_file"):
             env.update(dotenv_values(env_file))
         if env:
             cfg["environment"] = env
-
         cfg["name"] = self.name
         if " " in self.command:
             cfg["command"] = self.command.split()

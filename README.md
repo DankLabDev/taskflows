@@ -90,3 +90,12 @@ Service(
     system_load_constraints=CPUPressure(max_percent=80, timespan="5min", silent=True)
 )
 ```
+
+### Environment Variables
+TASKFLOWS_DB_URL
+TASKFLOWS_DB_SCHEMA
+TASKFLOWS_DISPLAY_TIMEZONE
+TASKFLOWS_DOCKER_LOG_DRIVER
+TASKFLOWS_FLUENT_BIT_HOST
+TASKFLOWS_FLUENT_BIT_PORT
+

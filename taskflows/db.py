@@ -6,7 +6,8 @@ from pathlib import Path
 
 import sqlalchemy as sa
 
-from taskflows.utils import config, logger
+from taskflows import logger
+from taskflows.config import config
 
 schema_name = config.db_schema
 

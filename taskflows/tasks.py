@@ -10,10 +10,22 @@ import sqlalchemy as sa
 from alert_msgs import ContentType, Emoji, FontSize, MsgDst, Text, send_alert
 from func_timeout import func_timeout
 from func_timeout.exceptions import FunctionTimedOut
+from pydantic import BaseModel
+
+from taskflows import logger as default_logger
 
 from .db import task_flows_db
-from .utils import Alerts
-from .utils import logger as default_logger
+
+
+class Alerts(BaseModel):
+    send_to: Sequence[MsgDst]
+    send_on: Sequence[Literal["start", "error", "finish"]]
+
+    def model_post_init(self, __context) -> None:
+        if not isinstance(self.send_to, (list, tuple)):
+            self.send_to = [self.send_to]
+        if isinstance(self.send_on, str):
+            self.send_on = [self.send_on]
 
 
 def task(
