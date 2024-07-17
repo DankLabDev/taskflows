@@ -128,7 +128,9 @@ def status(match: str, running: bool):
         data.update(get_schedule_info(unit_name))
     for unit_name, data in units_meta.items():
         data["Service"] = extract_service_name(unit_name)
-    units_meta = {k: v for k, v in units_meta.items() if v["load_state"] != "not-found"}
+    units_meta = {
+        k: v for k, v in units_meta.items() if v.get("load_state") != "not-found"
+    }
     columns = [
         "Service",
         "description",
@@ -222,7 +224,7 @@ def status(match: str, running: bool):
     assert len(srv_data) == len(units_meta)
     for srv in sort_service_names(srv_data.keys()):
         row = srv_data[srv]
-        if running and row["active_state"] != "active":
+        if running and row.get("active_state") != "active":
             continue
         row["Timers"] = (
             "\n".join(
@@ -234,7 +236,9 @@ def status(match: str, running: bool):
             )
             or "-"
         )
-        if row["active_state"] == "active" and (last_start := row.get("Last Start")):
+        if row.get("active_state") == "active" and (
+            last_start := row.get("Last Start")
+        ):
             row["Uptime"] = str(datetime.now() - last_start).split(".")[0]
         for dt_col in (
             "Last Start",
@@ -247,7 +251,6 @@ def status(match: str, running: bool):
                     .astimezone(ZoneInfo(config.display_timezone))
                     .strftime("%Y-%m-%d %I:%M:%S %p")
                 )
-
         row_text = []
         for col in columns:
             if (val := row.get(col)) is None:
