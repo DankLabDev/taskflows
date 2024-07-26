@@ -1,4 +1,5 @@
 import json
+import pickle
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
@@ -55,9 +56,8 @@ def _import_and_call_function(
 
 
 @click.command()
-@click.argument("module")
-@click.argument("var_name")
-def _import_and_run_docker_service(module: str, var_name: str):
+@click.argument("name")
+def _run_docker_service(name: str):
     """Import Docker container and run it. (This is an installed function)"""
-    service = import_module_attr(module, var_name)
+    service = pickle.loads(Path.home().joinpath(".taskflows", name).read_bytes())
     service.container.run()

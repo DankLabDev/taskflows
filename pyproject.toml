@@ -39,4 +39,4 @@ build-backend = "setuptools.build_meta"
 [project.scripts]
 tf = 'taskflows.admin:cli'
 _import_and_call_function = 'taskflows.service.exec:_import_and_call_function'
-_import_and_run_docker_service = 'taskflows.service.exec:_import_and_run_docker_service'
+_run_docker_service = 'taskflows.service.exec:_run_docker_service'

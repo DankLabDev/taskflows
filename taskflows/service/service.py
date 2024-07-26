@@ -5,16 +5,14 @@ https://pkg.go.dev/github.com/coreos/go-systemd/dbus
 """
 
 import os
+import pickle
 import re
-import sys
 from dataclasses import dataclass
 from datetime import datetime
 from functools import cache
 from pathlib import Path
 from pprint import pformat
 from typing import Dict, List, Literal, Optional, Sequence, Set, Union
-
-from dynamic_imports import import_module
 
 from taskflows import _SYSTEMD_FILE_PREFIX, logger
 
@@ -488,22 +486,11 @@ class DockerRunService(Service):
         )
 
     def create(self, defer_reload: bool = False):
-        def find_service_module():
-            for module in sys.modules.copy():
-                # skip internal modules
-                if module.startswith("_"):
-                    continue
-                module = import_module(module)
-                members = vars(module)
-                for var_name, var_value in members.items():
-                    if var_value is self:
-                        return module.__name__, var_name
-
-        loc = find_service_module()
-        if loc is None:
-            raise ValueError(f"Could not find service: {self}")
-        module, var_name = loc
-        start_command = f"_import_and_run_docker_service {module} {var_name}"
+        # save kwargs to file.
+        Path.home().joinpath(".taskflows", f"{self.name}.pickle").write_bytes(
+            pickle.dumps(self)
+        )
+        start_command = f"_run_docker_service {self.name}"
         self.start_command = (
             self.venv.create_env_command(start_command) if self.venv else start_command
         )
