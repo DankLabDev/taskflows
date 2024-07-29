@@ -1,6 +1,10 @@
+from pathlib import Path
 from typing import Literal, Optional
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+taskflows_data_dir = Path.home() / ".taskflows"
+taskflows_data_dir.mkdir(parents=True, exist_ok=True)
 
 
 class Config(BaseSettings):

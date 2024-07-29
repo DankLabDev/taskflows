@@ -1,6 +1,6 @@
 [project]
 name = "taskflows"
-version = "0.8.7"
+version = "0.9.0"
 description = "Python task management, scheduling, alerts."
 authors = [{ name = "Dan Kelleher", email = "kelleherjdan@gmail.com" }]
 license = { text = "MIT" }
@@ -23,13 +23,17 @@ dependencies = [
     "alert-msgs>=0.5.0",
     "quicklogs>=1.1.0",
     "func-timeout>=4.0.0",
+    "cloudpickle",
+    "python-dotenv",
+    "docker",
+    "dbus-python",
 ]
 
 [tool.setuptools]
-packages = ["taskflows"]
+# TODO don't install entire tests package
+packages = ["taskflows", "tests"]
 
 [project.optional-dependencies]
-service = ["python-dotenv", "docker", "dbus-python"]
 dev = ["black", "pytest", "pytest-asyncio", "psycopg[binary]"]
 
 [build-system]
@@ -38,5 +42,6 @@ build-backend = "setuptools.build_meta"
 
 [project.scripts]
 tf = 'taskflows.admin:cli'
-_import_and_call_function = 'taskflows.service.exec:_import_and_call_function'
 _run_docker_service = 'taskflows.service.exec:_run_docker_service'
+_deserialize_and_call = 'taskflows.service.exec:_deserialize_and_call'
+_run_function = 'taskflows.service.exec:_run_function'

@@ -8,7 +8,6 @@ from .constraints import (
     SystemLoadConstraint,
 )
 from .docker import ContainerLimits, DockerContainer, DockerImage, Ulimit, Volume
-from .exec import MambaEnv, call_function
 from .schedule import Calendar, Periodic, Schedule
 from .service import (
     BurstRestartPolicy,
@@ -17,4 +16,5 @@ from .service import (
     DockerStartService,
     RestartPolicy,
     Service,
+    MambaEnv,
 )

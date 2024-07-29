@@ -5,31 +5,25 @@ https://pkg.go.dev/github.com/coreos/go-systemd/dbus
 """
 
 import os
-import pickle
 import re
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
 from functools import cache
 from pathlib import Path
 from pprint import pformat
-from typing import Dict, List, Literal, Optional, Sequence, Set, Union
+from typing import Callable, Dict, List, Literal, Optional, Sequence, Set, Union
+
+import cloudpickle
+import dbus
 
 from taskflows import _SYSTEMD_FILE_PREFIX, logger
+from taskflows.config import taskflows_data_dir
 
 from .constraints import HardwareConstraint, SystemLoadConstraint
-from .docker import DockerContainer
-from .exec import Venv
+from .docker import DockerContainer, delete_docker_container
+from .exec import deserialize_and_call
 from .schedule import Schedule
-
-try:
-    import dbus
-except ImportError:
-    logger.warning(
-        "Could not import dbus. Service functionality will not be available."
-    )
-
-
-from .docker import delete_docker_container
 
 ServiceT = Union[str, "Service"]
 ServicesT = Union[ServiceT, Sequence[ServiceT]]
@@ -90,13 +84,34 @@ class BurstRestartPolicy(RestartPolicy):
 
 
 @dataclass
+class Venv(ABC):
+    env_name: str
+
+    @abstractmethod
+    def create_env_command(self, command: str) -> str:
+        pass
+
+
+@dataclass
+class MambaEnv(Venv):
+    def create_env_command(self, command: str) -> str:
+        """Generate mamba command."""
+        for dist_t in ("mambaforge", "miniforge3"):
+            mamba_exe = Path.home().joinpath(dist_t, "bin", "mamba")
+            if mamba_exe.is_file():
+                # return f"bash -c '{mamba_exe} run -n {self.env_name} {command}'"
+                return f"{mamba_exe} run -n {self.env_name} {command}"
+        raise FileNotFoundError("mamba executable not found!")
+
+
+@dataclass
 class Service:
     """A service to run a command on a specified schedule."""
 
     # name used to identify the service.
     name: str
     # command to execute.
-    start_command: str
+    start_command: str | Callable[[], None]
     # whether start_command blocks until completion.
     start_command_blocking: bool = True
     # command to execute to stop the service command.
@@ -209,6 +224,10 @@ class Service:
         logger.info("Creating service %s", self)
         # remove old version of this service if it exists.
         self.remove()
+        for attr in ("start_command", "stop_command", "restart_command"):
+            cmd = getattr(self, attr)
+            if not isinstance(cmd, str):
+                setattr(self, attr, deserialize_and_call(cmd, self.name, attr))
         self._write_timer_units()
         self._write_service_units()
         _enable_service(self.unit_files)
@@ -478,22 +497,21 @@ class DockerRunService(Service):
         self.container.name = name
         super().__init__(
             name=name,
-            # need to create start_command at create() time to prevent cicular import issues.
-            start_command=None,
+            start_command=f"_run_docker_service {name}",
             stop_command=f"docker stop {name}",
             restart_command=f"docker restart {name}",
             **kwargs,
         )
 
     def create(self, defer_reload: bool = False):
-        # save kwargs to file.
-        Path.home().joinpath(".taskflows", f"{self.name}.pickle").write_bytes(
-            pickle.dumps(self)
+        # start_command = f"_run_docker_service {self.name}"
+        # self.start_command = (
+        #    self.venv.create_env_command(start_command) if self.venv else start_command
+        # )
+        taskflows_data_dir.joinpath(f"{self.name}_docker_run_srv.pickle").write_bytes(
+            cloudpickle.dumps(self)
         )
-        start_command = f"_run_docker_service {self.name}"
-        self.start_command = (
-            self.venv.create_env_command(start_command) if self.venv else start_command
-        )
+
         super().create(defer_reload=defer_reload)
 
 

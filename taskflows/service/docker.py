@@ -1,8 +1,10 @@
+import base64
 from dataclasses import asdict, dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Sequence, Union
+from typing import Any, Callable, Dict, List, Literal, Optional, Sequence, Union
 
+import cloudpickle
 import docker
 from docker.errors import ImageNotFound
 from docker.models.containers import Container
@@ -16,6 +18,8 @@ from xxhash import xxh32
 
 from taskflows import logger
 from taskflows.config import config
+
+from .exec import deserialize_and_call
 
 
 @lru_cache
@@ -155,7 +159,7 @@ class DockerContainer:
     """Docker container."""
 
     image: Union[str, DockerImage]
-    command: str
+    command: Union[str, Callable[[], None]]
     name: Optional[str] = None
     network_mode: Optional[
         Literal["bridge", "host", "none", "overlay", "ipvlan", "macvlan"]
@@ -428,6 +432,8 @@ class DockerContainer:
         # if image is not build, it must be built.
         if isinstance(self.image, DockerImage):
             self.image.build()
+        if not isinstance(self.command, str):
+            self.command = deserialize_and_call(self.command, self.name, "command")
         cfg = self._params()
         cfg.update(kwargs)
         logger.info("Creating Docker container %s: %s", self.name, cfg)
@@ -435,6 +441,8 @@ class DockerContainer:
 
     def run(self):
         """Run container."""
+        if not isinstance(self.command, str):
+            self.command = f"_run_function {base64.b64encode(cloudpickle.dumps(self.command)).decode('utf-8')}"
         cfg = self._params()
         # use known identifier, but avoid name conflicts.
         # cfg["name"] += f"_{int(time()*1000)}"

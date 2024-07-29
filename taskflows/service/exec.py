@@ -1,63 +1,51 @@
-import json
-import pickle
-from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Callable, Optional
+import asyncio
+import base64
+import inspect
+from typing import Callable
 
 import click
-from dynamic_imports import import_module_attr
+import cloudpickle
 
-
-@dataclass
-class Venv(ABC):
-    env_name: str
-
-    @abstractmethod
-    def create_env_command(self, command: str) -> str:
-        pass
-
-
-@dataclass
-class MambaEnv(Venv):
-    def create_env_command(self, command: str) -> str:
-        """Generate mamba command."""
-        for dist_t in ("mambaforge", "miniforge3"):
-            mamba_exe = Path.home().joinpath(dist_t, "bin", "mamba")
-            if mamba_exe.is_file():
-                # return f"bash -c '{mamba_exe} run -n {self.env_name} {command}'"
-                return f"{mamba_exe} run -n {self.env_name} {command}"
-        raise FileNotFoundError("mamba executable not found!")
-
-
-def call_function(func: Callable, *args, **kwargs) -> str:
-    """Generate command to call function with optional args and kwargs."""
-    cmd = f"_import_and_call_function {func.__module__} {func.__name__}"
-    if args:
-        cmd += f" --args {json.dumps(args)}"
-    if kwargs:
-        cmd += f" --kwargs {json.dumps(kwargs)}"
-    return cmd
+from taskflows import logger
+from taskflows.config import taskflows_data_dir
 
 
 @click.command()
-@click.argument("module")
-@click.argument("func")
-@click.option("--args")
-@click.option("--kwargs")
-def _import_and_call_function(
-    module: str, func: str, args: Optional[str] = None, kwargs: Optional[str] = None
-):
-    """Import function and call it. (This is an installed function)"""
-    args = json.loads(args) if args else []
-    kwargs = json.loads(kwargs) if kwargs else {}
-    func = import_module_attr(module, func)
-    func(*args, **kwargs)
+@click.argument("b64_pickle_func")
+def _run_function(b64_pickle_func: str):
+    func = cloudpickle.loads(base64.b64decode(b64_pickle_func))
+    if inspect.iscoroutinefunction(func):
+        asyncio.run(func())
+    else:
+        func()
+
+
+def deserialize_and_call(func: Callable, name: str, attr: str) -> str:
+    taskflows_data_dir.joinpath(f"{name}_{attr}.pickle").write_bytes(
+        cloudpickle.dumps(func)
+    )
+    return f"_deserialize_and_call {name} {attr}"
+
+
+@click.command()
+@click.argument("name")
+@click.argument("attr")
+def _deserialize_and_call(name: str, attr: str):
+    func = cloudpickle.loads(
+        taskflows_data_dir.joinpath(f"{name}_{attr}.pickle").read_bytes()
+    )
+    if inspect.iscoroutinefunction(func):
+        asyncio.run(func())
+    else:
+        func()
 
 
 @click.command()
 @click.argument("name")
 def _run_docker_service(name: str):
     """Import Docker container and run it. (This is an installed function)"""
-    service = pickle.loads(Path.home().joinpath(".taskflows", name).read_bytes())
+    path = taskflows_data_dir / f"{name}_docker_run_srv.pickle"
+    logger.info("Loading service from %s", path)
+    service = cloudpickle.loads(path.read_bytes())
+    logger.info("Running service from %s", path)
     service.container.run()

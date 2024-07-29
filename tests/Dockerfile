@@ -14,7 +14,8 @@ RUN micromamba clean --all --yes
 
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive \
     apt-get install -y --no-install-recommends \
-    systemd \
+    gcc build-essential systemd dbus \
+    libffi-dev libdbus-1-dev libdbus-glib-1-dev pkg-config \
     # Clean up
     && apt-get clean && \
     rm -rf /var/lib/apt/lists/*
