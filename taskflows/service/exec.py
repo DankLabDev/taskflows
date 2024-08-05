@@ -47,5 +47,6 @@ def _run_docker_service(name: str):
     path = taskflows_data_dir / f"{name}_docker_run_srv.pickle"
     logger.info("Loading service from %s", path)
     service = cloudpickle.loads(path.read_bytes())
-    logger.info("Running service from %s", path)
-    service.container.run()
+    container = service.container
+    logger.info("Running docker container %s", container.name)
+    container.run()
