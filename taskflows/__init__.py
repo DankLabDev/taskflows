@@ -1,6 +1,6 @@
 from quicklogs import get_logger
 
-logger = get_logger("taskflows", stdout=True)
+logger = get_logger("taskflows", terminal=True)
 
 _SYSTEMD_FILE_PREFIX = "taskflow-"
 
