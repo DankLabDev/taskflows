@@ -14,7 +14,8 @@ from .service import (
     DelayRestartPolicy,
     DockerRunService,
     DockerStartService,
+    MambaEnv,
     RestartPolicy,
     Service,
-    MambaEnv,
+    extract_service_name,
 )

@@ -262,7 +262,10 @@ class Service:
 
     def remove(self):
         """Remove this service."""
-        _remove_service(service_files=self.service_files, timer_files=self.timer_files)
+        _remove_service(
+            service_files=self.service_files,
+            timer_files=self.timer_files,
+        )
 
     def _write_timer_units(self):
         for is_stop_timer, schedule in (
@@ -474,9 +477,9 @@ class DockerStartService(Service):
         )
 
     def create(self, defer_reload: bool = False):
+        super().create(defer_reload=defer_reload)
         if isinstance(self.container, DockerContainer):
             self.container.create()
-        super().create(defer_reload=defer_reload)
 
     def remove(self):
         """Remove this service."""
@@ -504,6 +507,7 @@ class DockerRunService(Service):
             start_command=f"_run_docker_service {name}",
             stop_command=f"docker stop {name}",
             restart_command=f"docker restart {name}",
+            start_command_blocking=False,
             **kwargs,
         )
 
