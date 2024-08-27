@@ -31,6 +31,10 @@ ServicesT = Union[ServiceT, Sequence[ServiceT]]
 systemd_dir = Path.home().joinpath(".config", "systemd", "user")
 
 
+def extract_service_name(unit: str | Path) -> List[str]:
+    return re.sub(f"^{_SYSTEMD_FILE_PREFIX}", "", Path(unit).stem)
+
+
 @dataclass
 class RestartPolicy:
     """Service restart policy."""
@@ -785,6 +789,8 @@ def _remove_service(
     for cname in container_names:
         if cname not in keep_containers:
             delete_docker_container(cname)
+    for srv in service_files:
+        files.extend(taskflows_data_dir.glob(f"{extract_service_name(srv)}#*.pickle"))
     for file in files:
         logger.info("Deleting %s", file)
         file.unlink()
