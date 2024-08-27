@@ -7,7 +7,6 @@ from fnmatch import fnmatchcase
 from functools import lru_cache
 from itertools import cycle
 from pathlib import Path
-from typing import List
 from zoneinfo import ZoneInfo
 
 import click
@@ -33,6 +32,7 @@ from .service.service import (
     _restart_service,
     _start_service,
     _stop_service,
+    extract_service_name,
     get_schedule_info,
     get_unit_file_states,
     get_unit_files,
@@ -458,7 +458,3 @@ def sort_service_names(services):
         if (stp_srv := f"{stop_prefix}{srv}") in stop_services:
             ordered.append(stp_srv)
     return ordered
-
-
-def extract_service_name(unit: str | Path) -> List[str]:
-    return re.sub(f"^{_SYSTEMD_FILE_PREFIX}", "", Path(unit).stem)

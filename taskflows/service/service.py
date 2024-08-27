@@ -512,7 +512,7 @@ class DockerRunService(Service):
         # self.start_command = (
         #    self.venv.create_env_command(start_command) if self.venv else start_command
         # )
-        taskflows_data_dir.joinpath(f"{self.name}_docker_run_srv.pickle").write_bytes(
+        taskflows_data_dir.joinpath(f"{self.name}#_docker_run_srv.pickle").write_bytes(
             cloudpickle.dumps(self)
         )
         super().create(defer_reload=defer_reload)

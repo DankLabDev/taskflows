@@ -21,7 +21,7 @@ def _run_function(b64_pickle_func: str):
 
 
 def deserialize_and_call(func: Callable, name: str, attr: str) -> str:
-    taskflows_data_dir.joinpath(f"{name}_{attr}.pickle").write_bytes(
+    taskflows_data_dir.joinpath(f"{name}#_{attr}.pickle").write_bytes(
         cloudpickle.dumps(func)
     )
     return f"_deserialize_and_call {name} {attr}"
@@ -32,7 +32,7 @@ def deserialize_and_call(func: Callable, name: str, attr: str) -> str:
 @click.argument("attr")
 def _deserialize_and_call(name: str, attr: str):
     func = cloudpickle.loads(
-        taskflows_data_dir.joinpath(f"{name}_{attr}.pickle").read_bytes()
+        taskflows_data_dir.joinpath(f"{name}#_{attr}.pickle").read_bytes()
     )
     if inspect.iscoroutinefunction(func):
         asyncio.run(func())
@@ -44,7 +44,7 @@ def _deserialize_and_call(name: str, attr: str):
 @click.argument("name")
 def _run_docker_service(name: str):
     """Import Docker container and run it. (This is an installed function)"""
-    path = taskflows_data_dir / f"{name}_docker_run_srv.pickle"
+    path = taskflows_data_dir / f"{name}#_docker_run_srv.pickle"
     logger.info("Loading service from %s", path)
     service = cloudpickle.loads(path.read_bytes())
     container = service.container
