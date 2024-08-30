@@ -21,7 +21,7 @@ dependencies = [
     "textdistance",
     "dynamic-imports>=1.0.0",
     "alert-msgs>=0.5.0",
-    "quicklogs>=1.1.0",
+    "quicklogs>=2.0.0",
     "func-timeout>=4.0.0",
     "cloudpickle",
     "python-dotenv",
