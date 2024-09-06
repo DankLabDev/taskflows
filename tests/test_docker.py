@@ -1,3 +1,4 @@
+from pathlib import Path
 from tempfile import NamedTemporaryFile
 from time import sleep
 
@@ -11,12 +12,8 @@ venv = MambaEnv("trading")
 @pytest.fixture
 def temp_file():
     with NamedTemporaryFile() as f:
-        yield f.name
-
-
-def write_file(text_file):
-    with open(text_file, "w") as f:
-        f.write("hello")
+        yield Path(f.name)
+        # yield f"/opt/{Path(f.name).name}"
 
 
 @pytest.fixture
@@ -24,7 +21,7 @@ def docker_container(temp_file):
     return DockerContainer(
         name="taskflows-test",
         image="taskflows",
-        command=lambda: write_file(f"/opt/{temp_file}"),
+        command=lambda: temp_file.write_text("hello"),
         network_mode="host",
         volumes=[
             # Volume(
@@ -33,7 +30,7 @@ def docker_container(temp_file):
             # ),
             Volume(
                 host_path=temp_file,
-                container_path=f"/opt/{temp_file}",
+                container_path=temp_file,
             ),
             Volume(
                 host_path="/var/run/docker.sock",
@@ -45,7 +42,8 @@ def docker_container(temp_file):
 
 def test_container_run_py_function(temp_file, docker_container):
     docker_container.run()
-    assert open(temp_file).read().strip() == "hello"
+    sleep(2)
+    assert temp_file.read_text() == "hello"
 
 
 def test_docker_run_service(temp_file, docker_container):
@@ -53,4 +51,4 @@ def test_docker_run_service(temp_file, docker_container):
     srv.create()
     srv.start()
     sleep(2)
-    assert open(temp_file).read().strip() == "hello"
+    assert temp_file.read_text() == "hello"

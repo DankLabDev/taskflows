@@ -7,6 +7,7 @@ import pytest
 import sqlalchemy as sa
 
 import taskflows
+from taskflows.db import TasksDB, engine
 
 
 def create_task_logger(monkeypatch, request, db: Literal["sqlite", "postgres"]):
@@ -31,11 +32,11 @@ def create_task_logger(monkeypatch, request, db: Literal["sqlite", "postgres"]):
 def test_on_task_start(monkeypatch, request, db):
     task_logger = create_task_logger(monkeypatch, request, db)
     task_logger.on_task_start()
-    table = task_logger.db.task_runs_table
+    table = TasksDB.task_runs_table
     query = sa.select(table.c.task_name, table.c.started).where(
         table.c.task_name == task_logger.name
     )
-    with task_logger.engine.begin() as conn:
+    with engine.begin() as conn:
         tasks = list(conn.execute(query).fetchall())
     assert len(tasks) == 1
     # name and started columns should be null.
@@ -47,9 +48,9 @@ def test_on_task_error(monkeypatch, request, db):
     task_logger = create_task_logger(monkeypatch, request, db)
     error = Exception(str(uuid4()))
     task_logger.on_task_error(error)
-    table = task_logger.db.task_errors_table
+    table = TasksDB.task_errors_table
     query = sa.select(table).where(table.c.task_name == task_logger.name)
-    with task_logger.engine.begin() as conn:
+    with engine.begin() as conn:
         errors = list(conn.execute(query).fetchall())
     assert len(errors) == 1
     # no columns should be null.
@@ -65,9 +66,9 @@ def test_on_task_finish(monkeypatch, request, db):
         retries=random.randint(0, 5),
         return_value=str(uuid4()),
     )
-    table = task_logger.db.task_runs_table
+    table = TasksDB.task_runs_table
     query = sa.select(table).where(table.c.task_name == task_logger.name)
-    with task_logger.engine.begin() as conn:
+    with engine.begin() as conn:
         tasks = list(conn.execute(query).fetchall())
     assert len(tasks) == 1
     # no columns should be null.
