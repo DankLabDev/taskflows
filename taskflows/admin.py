@@ -23,7 +23,7 @@ from textdistance import lcsseq
 from taskflows import _SYSTEMD_FILE_PREFIX
 
 from .config import config
-from .db import task_flows_db
+from .db import TasksDB, engine
 from .service.service import (
     Service,
     _disable_service,
@@ -58,8 +58,7 @@ cli = Group("taskflows", chain=True)
 def history(limit: int, match: str = None):
     """Print task run history to console display."""
     # https://rich.readthedocs.io/en/stable/appendix/colors.html#appendix-colors
-    db = task_flows_db()
-    table = db.task_runs_table
+    table = TasksDB.task_runs_table
     console = Console()
     column_color = table_column_colors()
     task_names_query = sa.select(table.c.task_name).distinct()
@@ -73,7 +72,7 @@ def history(limit: int, match: str = None):
     if limit:
         query = query.limit(limit)
     columns = [c.name.replace("_", " ").title() for c in table.columns]
-    with db.engine.begin() as conn:
+    with engine.begin() as conn:
         rows = [dict(zip(columns, row)) for row in conn.execute(query).fetchall()]
     table = Table(title="Task History", box=box.SIMPLE)
     if all(row["Retries"] == 0 for row in rows):
