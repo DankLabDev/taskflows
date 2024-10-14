@@ -1,6 +1,6 @@
 [project]
 name = "taskflows"
-version = "0.9.1"
+version = "0.9.2"
 description = "Python task management, scheduling, alerts."
 authors = [{ name = "Dan Kelleher", email = "kelleherjdan@gmail.com" }]
 license = { text = "MIT" }
@@ -20,7 +20,7 @@ dependencies = [
     "docker",
     "textdistance",
     "dynamic-imports>=1.0.0",
-    "alert-msgs>=0.5.0",
+    "alert-msgs>=0.7.2",
     "quicklogs>=2.0.0",
     "func-timeout>=4.0.0",
     "cloudpickle",
