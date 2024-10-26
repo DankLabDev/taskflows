@@ -16,7 +16,6 @@ from typing import Callable, Dict, List, Literal, Optional, Sequence, Set, Union
 
 import cloudpickle
 import dbus
-
 from taskflows import _SYSTEMD_FILE_PREFIX, logger
 from taskflows.config import taskflows_data_dir
 
@@ -306,11 +305,8 @@ class Service:
             f"ExecStart={self.start_command}",
             f"KillSignal={self.kill_signal}",
         }
-        if not self.start_command_blocking:
-            # service.add("Type=simple")
-            service.add("RemainAfterExit=yes")
-        ##else:
-        # service.add("Type=simple")
+        # if not self.start_command_blocking:
+        # service.add("RemainAfterExit=yes")
         if self.stop_command:
             service.add(f"ExecStop={self.stop_command}")
         if self.restart_command:
