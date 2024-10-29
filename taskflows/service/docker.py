@@ -93,6 +93,9 @@ class DockerImage:
     # variables will be set in the container being built.
     use_config_proxy: Optional[bool] = None
 
+    def __post_init__(self):
+        self.path = str(self.path)
+
     def build(self, force_recreate: bool = False) -> Image:
         client = get_docker_client()
         try:
@@ -111,7 +114,7 @@ class DockerImage:
         for row in log:
             if "id" in row:
                 row_fmt = f"[{row['id']}][{row['status']}]"
-                if row["progress_detail"]:
+                if row.get("progress_detail"):
                     row_fmt += f"[{row['progress_detail']}]"
                 row_fmt += f"[{row['progress']}]"
             elif "stream" in row:
