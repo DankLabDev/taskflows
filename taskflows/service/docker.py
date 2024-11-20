@@ -5,19 +5,19 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Literal, Optional, Sequence, Union
 
 import cloudpickle
+from dotenv import dotenv_values
+from pydantic import BaseModel, PositiveInt
+from pydantic_settings import SettingsConfigDict
+from taskflows import logger
+from taskflows.config import config
+from xxhash import xxh32
+
 import docker
 from docker.errors import ImageNotFound
 from docker.models.containers import Container
 from docker.models.images import Image
 from docker.types import LogConfig
 from docker.types.containers import LogConfigTypesEnum
-from dotenv import dotenv_values
-from pydantic import BaseModel, PositiveInt
-from pydantic_settings import SettingsConfigDict
-from xxhash import xxh32
-
-from taskflows import logger
-from taskflows.config import config
 
 from .exec import deserialize_and_call
 
@@ -172,7 +172,8 @@ class DockerContainer:
     user: Optional[str] = None
     mem_limit: Optional[str] = None
     shm_size: Optional[str] = None
-    env: Optional[Dict[str, str]] = None
+    # Environment variables to set inside
+    environment: Optional[Union[Dict[str, str]]] = None
     env_file: Optional[Union[str, Path]] = None
     # Local volumes.
     volumes: Optional[Union[Volume, Sequence[Volume]]] = None
@@ -252,10 +253,7 @@ class DockerContainer:
     domainname: Optional[Union[str, List[str]]] = None
     # The entrypoint for the container.
     entrypoint: Optional[Union[str, List[str]]] = None
-    # Environment variables to set inside
-    # the container, as a dictionary or a list of strings in the
-    # format ["SOMEVARIABLE=xxx"].
-    environment: Optional[Union[Dict[str, str], List[str]]] = None
+
     # Additional hostnames to resolve inside the
     # container, as a mapping of hostname to IP address.
     extra_hosts: Optional[Dict[str, str]] = None
@@ -485,7 +483,7 @@ class DockerContainer:
             logger.error("Unknown docker log driver: %s", log_driver)
         cfg["log_config"] = log_cfg
         logger.info("Using log driver: %s", log_cfg)
-        env = cfg.pop("env", {})
+        env = cfg.get("environment", {})
         if env_file := cfg.get("env_file"):
             env.update(dotenv_values(env_file))
         if env:
