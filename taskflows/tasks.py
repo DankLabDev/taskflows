@@ -234,7 +234,7 @@ def _task_wrapper(
         except Exception as e:
             exp = e
         msg = f"Error executing task {task_logger.name}. Retries remaining: {retries-i}.\n({type(exp)}) -- {exp}"
-        logger.error(msg)
+        logger.exception(msg)
         task_logger.on_task_error(exp)
     task_logger.on_task_finish(success=False, retries=retries)
 
@@ -259,6 +259,6 @@ async def _async_task_wrapper(
             return result
         except Exception as exp:
             msg = f"Error executing task {task_logger.name}. Retries remaining: {retries-i}.\n({type(exp)}) -- {exp}"
-            logger.error(msg)
+            logger.exception(msg)
             task_logger.on_task_error(exp)
     task_logger.on_task_finish(success=False, retries=retries)
