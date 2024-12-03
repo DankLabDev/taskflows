@@ -12,7 +12,8 @@ from datetime import datetime
 from functools import cache
 from pathlib import Path
 from pprint import pformat
-from typing import Callable, Dict, List, Literal, Optional, Sequence, Set, Union
+from typing import (Callable, Dict, List, Literal, Optional, Sequence, Set,
+                    Union)
 
 import cloudpickle
 import dbus
@@ -115,7 +116,7 @@ class Service:
     name: str
     # command to execute.
     start_command: str | Callable[[], None]
-    # whether start_command blocks until completion.
+    # whether the start command is blocking.
     start_command_blocking: bool = True
     # command to execute to stop the service command.
     stop_command: Optional[str] = None
@@ -305,8 +306,8 @@ class Service:
             f"ExecStart={self.start_command}",
             f"KillSignal={self.kill_signal}",
         }
-        # if not self.start_command_blocking:
-        # service.add("RemainAfterExit=yes")
+        if (not self.start_command_blocking) and self.stop_schedule:
+            service.add("RemainAfterExit=yes")
         if self.stop_command:
             service.add(f"ExecStop={self.stop_command}")
         if self.restart_command:
@@ -503,7 +504,7 @@ class DockerRunService(Service):
             start_command=f"_run_docker_service {name}",
             stop_command=f"docker stop {name}",
             restart_command=f"docker restart {name}",
-            start_command_blocking=False,
+            start_command_blocking=True,
             **kwargs,
         )
 
