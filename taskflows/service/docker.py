@@ -430,7 +430,7 @@ class DockerContainer:
         # if image is not build, it must be built.
         if isinstance(self.image, DockerImage):
             self.image.build()
-        if not isinstance(self.command, str):
+        if self.command and not isinstance(self.command, str):
             self.command = deserialize_and_call(self.command, self.name, "command")
         cfg = self._params()
         cfg.update(kwargs)
@@ -439,7 +439,7 @@ class DockerContainer:
 
     def run(self):
         """Run container."""
-        if not isinstance(self.command, str):
+        if self.command and not isinstance(self.command, str):
             self.command = f"_run_function {base64.b64encode(cloudpickle.dumps(self.command)).decode('utf-8')}"
         cfg = self._params()
         # use known identifier, but avoid name conflicts.
