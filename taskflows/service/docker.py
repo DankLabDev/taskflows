@@ -422,7 +422,7 @@ class DockerContainer:
                 img_name = self.image.tag
             else:
                 img_name = self.image.split("/")[-1].split(":")[0]
-            command_id = xxh32(self.command).hexdigest()
+            command_id = xxh32(str(self.command)).hexdigest()
             self.name = f"{img_name}-{command_id}"
 
         # remove any existing container with this name.
@@ -489,7 +489,7 @@ class DockerContainer:
         if env:
             cfg["environment"] = env
         cfg["name"] = self.name
-        if " " in self.command:
+        if self.command and " " in self.command:
             cfg["command"] = self.command.split()
         if self.ulimits:
             cfg["ulimits"] = [
