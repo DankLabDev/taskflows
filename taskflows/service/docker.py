@@ -5,19 +5,19 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Literal, Optional, Sequence, Union
 
 import cloudpickle
-from dotenv import dotenv_values
-from pydantic import BaseModel, PositiveInt
-from pydantic_settings import SettingsConfigDict
-from taskflows import logger
-from taskflows.config import config
-from xxhash import xxh32
-
 import docker
 from docker.errors import ImageNotFound
 from docker.models.containers import Container
 from docker.models.images import Image
 from docker.types import LogConfig
 from docker.types.containers import LogConfigTypesEnum
+from dotenv import dotenv_values
+from pydantic import BaseModel, PositiveInt
+from pydantic_settings import SettingsConfigDict
+from xxhash import xxh32
+
+from taskflows import logger
+from taskflows.config import config
 
 from .exec import deserialize_and_call
 
@@ -162,7 +162,7 @@ class DockerContainer:
     """Docker container."""
 
     image: Union[str, DockerImage]
-    command: Union[str, Callable[[], None]]
+    command: Optional[Union[str, Callable[[], None]]] = None
     name: Optional[str] = None
     network_mode: Optional[
         Literal["bridge", "host", "none", "overlay", "ipvlan", "macvlan"]
