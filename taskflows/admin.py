@@ -24,22 +24,12 @@ from taskflows import _SYSTEMD_FILE_PREFIX
 
 from .config import config
 from .db import TasksDB, engine
-from .service.service import (
-    Service,
-    _disable_service,
-    _enable_service,
-    _remove_service,
-    _restart_service,
-    _start_service,
-    _stop_service,
-    extract_service_name,
-    get_schedule_info,
-    get_unit_file_states,
-    get_unit_files,
-    get_units,
-    reload_unit_files,
-    systemd_manager,
-)
+from .service.service import (Service, _disable_service, _enable_service,
+                              _remove_service, _restart_service,
+                              _start_service, _stop_service,
+                              extract_service_name, get_schedule_info,
+                              get_unit_file_states, get_unit_files, get_units,
+                              reload_unit_files, systemd_manager)
 
 cli = Group("taskflows", chain=True)
 
@@ -280,27 +270,7 @@ def logs(service_name: str):
         f"journalctl --user -f -u {_SYSTEMD_FILE_PREFIX}{service_name}".split()
     )
 
-
-@cli.command
-@click.argument("search-in")
-@click.option(
-    "-i",
-    "--include",
-    type=str,
-    help="Name or glob pattern of services that should be included.",
-)
-@click.option(
-    "-e",
-    "--exclude",
-    type=str,
-    help="Name or glob pattern of services that should be excluded.",
-)
-def create(
-    search_in,
-    include,
-    exclude,
-):
-    """Create services found in a Python file or package."""
+def create(search_in: str, include: str, exclude: str):
     services = class_inst(class_type=Service, search_in=search_in)
     if include:
         services = [s for s in services if fnmatchcase(include, s.name)]
@@ -316,6 +286,28 @@ def create(
     for srv in services:
         srv.create(defer_reload=True)
     reload_unit_files()
+
+@cli.command(name="create")
+@click.argument("search-in")
+@click.option(
+    "-i",
+    "--include",
+    type=str,
+    help="Name or glob pattern of services that should be included.",
+)
+@click.option(
+    "-e",
+    "--exclude",
+    type=str,
+    help="Name or glob pattern of services that should be excluded.",
+)
+def _create(
+    search_in,
+    include,
+    exclude,
+):
+    """Create services found in a Python file or package."""
+    create(search_in=search_in, include=include, exclude=exclude)
     click.echo(click.style("Done!", fg="green"))
 
 
