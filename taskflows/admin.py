@@ -7,6 +7,7 @@ from fnmatch import fnmatchcase
 from functools import lru_cache
 from itertools import cycle
 from pathlib import Path
+from typing import Optional
 from zoneinfo import ZoneInfo
 
 import click
@@ -24,12 +25,22 @@ from taskflows import _SYSTEMD_FILE_PREFIX
 
 from .config import config
 from .db import TasksDB, engine
-from .service.service import (Service, _disable_service, _enable_service,
-                              _remove_service, _restart_service,
-                              _start_service, _stop_service,
-                              extract_service_name, get_schedule_info,
-                              get_unit_file_states, get_unit_files, get_units,
-                              reload_unit_files, systemd_manager)
+from .service.service import (
+    Service,
+    _disable_service,
+    _enable_service,
+    _remove_service,
+    _restart_service,
+    _start_service,
+    _stop_service,
+    extract_service_name,
+    get_schedule_info,
+    get_unit_file_states,
+    get_unit_files,
+    get_units,
+    reload_unit_files,
+    systemd_manager,
+)
 
 cli = Group("taskflows", chain=True)
 
@@ -270,7 +281,7 @@ def logs(service_name: str):
         f"journalctl --user -f -u {_SYSTEMD_FILE_PREFIX}{service_name}".split()
     )
 
-def create(search_in: str, include: str, exclude: str):
+def create(search_in: str, include: Optional[str] = None, exclude: Optional[str] = None):
     services = class_inst(class_type=Service, search_in=search_in)
     if include:
         services = [s for s in services if fnmatchcase(include, s.name)]
