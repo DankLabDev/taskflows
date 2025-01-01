@@ -5,17 +5,17 @@ import sys
 import traceback
 from functools import cache, wraps
 from pprint import pformat
-from typing import Any, Optional
 
 from dynamic_imports import import_module_attr
 
 from taskflows import logger
 
 
-def async_command(blocking: bool = False):
+def async_command(blocking: bool = False, shutdown_on_exception: bool = True):
     def decorator(f):
         loop = asyncio.get_event_loop()
         sdh = get_shutdown_handler()
+        sdh.shutdown_on_exception = shutdown_on_exception
 
         async def async_command_async(*args, **kwargs):
             logger.info("Running main task: %s", f)
@@ -48,6 +48,7 @@ def async_command(blocking: bool = False):
 
 
 class LazyCLI:
+    """Combine and lazy load multiple click CLIs."""
     def __init__(self):
         self.cli = None
         self.command = {}
@@ -67,12 +68,12 @@ class LazyCLI:
         
 
 class ShutdownHandler:
-    def __init__(self, loop: Optional[Any] = None):
-        self.loop = loop or asyncio.get_event_loop()
+    def __init__(self, shutdown_on_exception: bool = False):
+        self.shutdown_on_exception = shutdown_on_exception
+        self.loop = asyncio.get_event_loop()
         self.callbacks = []
         self.exit_code = None
         self._shutdown_task = None
-
         self.loop.set_exception_handler(self._loop_exception_handle)
         for s in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
             self.loop.add_signal_handler(
@@ -105,7 +106,8 @@ class ShutdownHandler:
             # Log the message if no exception is provided
             message = context.get("message", "No exception object found in context")
             logger.error("Error message: %s", message)
-        if self._shutdown_task is None:
+
+        if self.shutdown_on_exception and (self._shutdown_task is None):
             self._create_shutdown_task(1)
 
     async def _on_signal_interrupt(self, signum, frame=None):
@@ -116,13 +118,9 @@ class ShutdownHandler:
     def _create_shutdown_task(self, exit_code: int):
         self._shutdown_task = self.loop.create_task(self._shutdown(exit_code))
 
-    async def _close_pg_pool_conn(self):
-        pool_conn = await cached_sa_conn()
-        await pool_conn.close()
-
     async def _shutdown(self, exit_code: int):
         logger.info("Shutting down (exit code: %i)", exit_code)
-        for cb in self.callbacks + [self._close_pg_pool_conn]:
+        for cb in self.callbacks:
             logger.info("Calling shutdown callback: %s", cb)
             try:
                 await asyncio.wait_for(cb(), timeout=5)
@@ -139,5 +137,5 @@ class ShutdownHandler:
 
 
 @cache
-def get_shutdown_handler(loop=None):
-    return ShutdownHandler(loop=loop)
+def get_shutdown_handler():
+    return ShutdownHandler()
