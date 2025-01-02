@@ -1,6 +1,6 @@
 [project]
 name = "taskflows"
-version = "0.10.0"
+version = "0.11.0"
 description = "Python task management, scheduling, alerts."
 authors = [{ name = "Dan Kelleher", email = "kelleherjdan@gmail.com" }]
 license = { text = "MIT" }
@@ -14,6 +14,7 @@ readme = "README.md"
 dependencies = [
     "sqlalchemy>=2.0.0",
     "pydantic>=2.0.0",
+    "pydantic_settings>=2.0.0",
     "tqdm",
     "click",
     "rich",
@@ -27,6 +28,8 @@ dependencies = [
     "python-dotenv",
     "docker",
     "dbus-python",
+    "aiohttp",
+    "xxh32"
 ]
 
 [tool.setuptools]
