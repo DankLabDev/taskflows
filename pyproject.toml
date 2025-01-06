@@ -1,6 +1,6 @@
 [project]
 name = "taskflows"
-version = "0.11.0"
+version = "0.11.1"
 description = "Python task management, scheduling, alerts."
 authors = [{ name = "Dan Kelleher", email = "kelleherjdan@gmail.com" }]
 license = { text = "MIT" }
@@ -29,7 +29,7 @@ dependencies = [
     "docker",
     "dbus-python",
     "aiohttp",
-    "xxh32"
+    "xxhash"
 ]
 
 [tool.setuptools]
