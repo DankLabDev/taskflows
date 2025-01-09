@@ -14,10 +14,9 @@ from .service import (
     DelayRestartPolicy,
     DockerRunService,
     DockerStartService,
-    LazyCLI,
     MambaEnv,
     RestartPolicy,
     Service,
-    async_command,
     extract_service_name,
 )
+from .entrypoints import LazyCLI, async_command
