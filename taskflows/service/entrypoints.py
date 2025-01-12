@@ -2,6 +2,7 @@ import asyncio
 import sys
 from functools import wraps
 
+from click import Group
 from dynamic_imports import import_module_attr
 
 from taskflows import logger
@@ -47,11 +48,11 @@ def async_command(blocking: bool = False, shutdown_on_exception: bool = True):
 class LazyCLI:
     """Combine and lazy load multiple click CLIs."""
     def __init__(self):
-        self.cli = None
-        self.command = {}
+        self.cli = Group()
+        self.commands = {}
 
     def add_sub_cli(self, name: str, cli_module: str, cli_variable: str):
-        self.command[name] = lambda: import_module_attr(cli_module, cli_variable)
+        self.commands[name] = lambda: import_module_attr(cli_module, cli_variable)
 
     def run(self):
         if len(sys.argv) > 1 and (cmd_name := sys.argv[1]) in self.commands:
