@@ -45,13 +45,16 @@ def async_command(blocking: bool = False, shutdown_on_exception: bool = True):
     return decorator
 
 
-class LazyCLI:
-    """Combine and lazy load multiple click CLIs."""
+class CLIGroup:
+    """Combine and optionaly lazy load multiple click CLIs."""
     def __init__(self):
         self.cli = Group()
         self.commands = {}
 
-    def add_sub_cli(self, name: str, cli_module: str, cli_variable: str):
+    def add_sub_cli(self, cli: Group):
+        self.cli.add_command(cli)
+
+    def add_lazy_sub_cli(self, name: str, cli_module: str, cli_variable: str):
         self.commands[name] = lambda: import_module_attr(cli_module, cli_variable)
 
     def run(self):
