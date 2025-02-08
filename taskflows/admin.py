@@ -24,7 +24,7 @@ from textdistance import lcsseq
 from taskflows import _SYSTEMD_FILE_PREFIX
 
 from .config import config
-from .db import TasksDB, engine
+from .db import engine, get_tasks_db
 from .service.service import (
     Service,
     _disable_service,
@@ -59,7 +59,7 @@ cli = Group("taskflows", chain=True)
 def history(limit: int, match: str = None):
     """Print task run history to console display."""
     # https://rich.readthedocs.io/en/stable/appendix/colors.html#appendix-colors
-    table = TasksDB.task_runs_table
+    table = get_tasks_db().task_runs_table
     console = Console()
     column_color = table_column_colors()
     task_names_query = sa.select(table.c.task_name).distinct()

@@ -13,9 +13,7 @@ class Config(BaseSettings):
     db_url: Optional[str] = None
     db_schema: str = "taskflows"
     display_timezone: str = "UTC"
-    docker_log_driver: Optional[
-        Literal["journald", "fluentd", "syslog", "journald", "gelf", "none"]
-    ] = "fluentd"
+    docker_log_fluentd: bool = True
 
     model_config = SettingsConfigDict(env_prefix="taskflows_")
 

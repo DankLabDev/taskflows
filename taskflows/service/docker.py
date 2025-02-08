@@ -466,21 +466,10 @@ class DockerContainer:
                 "labels": self.name,
             },
         )
-        log_driver = str(cfg.pop("log_driver", config.docker_log_driver))
-        if log_driver == "fluentd":
+        if cfg.pop("docker_log_fluentd", config.docker_log_fluentd):
             log_cfg.type = LogConfigTypesEnum.FLUENTD
             fb_cfg = FluentBitConfig()
             log_cfg.set_config_value("fluentd-address", f"{fb_cfg.host}:{fb_cfg.port}")
-        elif log_driver == "syslog":
-            log_cfg.type = LogConfigTypesEnum.SYSLOG
-        elif log_driver == "journald":
-            log_cfg.type = LogConfigTypesEnum.JOURNALD
-        elif log_driver == "gelf":
-            log_cfg.type = LogConfigTypesEnum.GELF
-        elif log_driver == "none":
-            log_cfg.type = LogConfigTypesEnum.NONE
-        else:
-            logger.error("Unknown docker log driver: %s", log_driver)
         cfg["log_config"] = log_cfg
         logger.info("Using log driver: %s", log_cfg)
         env = cfg.get("environment", {})
