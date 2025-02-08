@@ -19,4 +19,4 @@ from .service import (
     Service,
     extract_service_name,
 )
-from .entrypoints import LazyCLI, async_command
+from .entrypoints import CLIGroup, async_command

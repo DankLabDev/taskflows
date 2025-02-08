@@ -39,6 +39,9 @@ class ContainerLimits:
     # CPUs in which to allow execution, e.g., 0-3, 0,1
     cpusetcpus: Optional[str] = None
 
+    def __hash__(self):
+        return hash((self.memory, self.memswap, self.cpushares, self.cpusetcpus))
+
 
 @dataclass
 class DockerImage:
@@ -136,6 +139,9 @@ class Volume:
         self.host_path = str(self.host_path)
         self.container_path = str(self.container_path)
 
+    def __hash__(self):
+        return hash((self.host_path, self.container_path, self.read_only))
+
 
 @dataclass
 class Ulimit:
@@ -148,6 +154,9 @@ class Ulimit:
     def __post_init__(self):
         if self.soft is None and self.hard is None:
             raise ValueError("Either `soft` limit or `hard` limit must be set.")
+        
+    def __hash__(self):
+        return hash((self.name, self.soft, self.hard))
 
 
 class FluentBitConfig(BaseModel):
@@ -155,6 +164,9 @@ class FluentBitConfig(BaseModel):
     port: PositiveInt = 24224
 
     model_config = SettingsConfigDict(env_prefix="taskflows_fluent_bit_")
+
+    def __hash__(self):
+        return hash((self.host, self.port))
 
 
 @dataclass
