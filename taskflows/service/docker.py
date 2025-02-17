@@ -2,22 +2,23 @@ import base64
 from dataclasses import asdict, dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Literal, Optional, Sequence, Union
+from typing import (Any, Callable, Dict, List, Literal, Optional, Sequence,
+                    Union)
 
 import cloudpickle
+from dotenv import dotenv_values
+from pydantic import BaseModel, PositiveInt
+from pydantic_settings import SettingsConfigDict
+from taskflows import logger
+from taskflows.config import config
+from xxhash import xxh32
+
 import docker
 from docker.errors import ImageNotFound
 from docker.models.containers import Container
 from docker.models.images import Image
 from docker.types import LogConfig
 from docker.types.containers import LogConfigTypesEnum
-from dotenv import dotenv_values
-from pydantic import BaseModel, PositiveInt
-from pydantic_settings import SettingsConfigDict
-from xxhash import xxh32
-
-from taskflows import logger
-from taskflows.config import config
 
 from .exec import deserialize_and_call
 
@@ -116,10 +117,13 @@ class DockerImage:
         fmt_log = []
         for row in log:
             if "id" in row:
-                row_fmt = f"[{row['id']}][{row['status']}]"
-                if row.get("progress_detail"):
-                    row_fmt += f"[{row['progress_detail']}]"
-                row_fmt += f"[{row['progress']}]"
+                row_fmt = f"[{row['id']}]"
+                if s := row['status']:
+                    row_fmt += f"[{s}]"
+                if pd := row.get("progress_detail"):
+                    row_fmt += f"[{pd}]"
+                if p := row.get('progress'):
+                    row_fmt += f"[{p}]"
             elif "stream" in row:
                 fmt_log.append(row["stream"])
         fmt_log = "".join(fmt_log)
