@@ -1,6 +1,7 @@
 import os
 import re
 from datetime import datetime, timezone
+from functools import cache
 from pathlib import Path
 
 import sqlalchemy as sa
@@ -29,72 +30,64 @@ sa_meta = sa.MetaData(schema=schema_name)
 
 engine = sa.create_engine(db_url)
 
-service_logs_table = sa.Table(
-    "service_logs",
-    sa_meta,
-    # TODO needs ID
-    sa.Column("tag", sa.Text),
-    sa.Column("log", sa.Text),
-    sa.Column(
-        "time", sa.DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
-    ),
-)
-
-
 class TasksDB:
-    if dialect == "sqlite":
+    def __init__(self):
+        if dialect == "sqlite":
 
-        from sqlalchemy.dialects.sqlite import insert
-    elif dialect == "postgresql":
-        from sqlalchemy.dialects.postgresql import insert
-    else:
-        raise ValueError(f"Unsupported database dialect: {dialect}")
-    logger.info("Using database: %s", db_url)
-    if schema_name:
-        with engine.begin() as conn:
-            if not conn.dialect.has_schema(conn, schema_name):
-                logger.info("Creating schema '%s'", schema_name)
-                conn.execute(sa.schema.CreateSchema(schema_name))
-    task_runs_table = sa.Table(
-        "task_runs",
-        sa_meta,
-        sa.Column("task_name", sa.String, primary_key=True),
-        sa.Column(
-            "started",
-            sa.DateTime(timezone=True),
-            default=lambda: datetime.now(timezone.utc),
-            primary_key=True,
-        ),
-        sa.Column("finished", sa.DateTime(timezone=True)),
-        sa.Column("retries", sa.Integer, default=0),
-        sa.Column("status", sa.String),
-    )
-    task_errors_table = sa.Table(
-        "task_errors",
-        sa_meta,
-        sa.Column("task_name", sa.String, primary_key=True),
-        sa.Column(
-            "time",
-            sa.DateTime(timezone=True),
-            default=lambda: datetime.now(timezone.utc),
-            primary_key=True,
-        ),
-        sa.Column("type", sa.String),
-        sa.Column("message", sa.String),
-    )
-    for table in (
-        task_runs_table,
-        task_errors_table,
-    ):
-        with engine.begin() as conn:
-            table.create(conn, checkfirst=True)
+            from sqlalchemy.dialects.sqlite import insert
+        elif dialect == "postgresql":
+            from sqlalchemy.dialects.postgresql import insert
+        else:
+            raise ValueError(f"Unsupported database dialect: {dialect}")
+        logger.info("Using database: %s", db_url)
+        if schema_name:
+            with engine.begin() as conn:
+                if not conn.dialect.has_schema(conn, schema_name):
+                    logger.info("Creating schema '%s'", schema_name)
+                    conn.execute(sa.schema.CreateSchema(schema_name))
+        self.task_runs_table = sa.Table(
+            "task_runs",
+            sa_meta,
+            sa.Column("task_name", sa.String, primary_key=True),
+            sa.Column(
+                "started",
+                sa.DateTime(timezone=True),
+                default=lambda: datetime.now(timezone.utc),
+                primary_key=True,
+            ),
+            sa.Column("finished", sa.DateTime(timezone=True)),
+            sa.Column("retries", sa.Integer, default=0),
+            sa.Column("status", sa.String),
+        )
+        self.task_errors_table = sa.Table(
+            "task_errors",
+            sa_meta,
+            sa.Column("task_name", sa.String, primary_key=True),
+            sa.Column(
+                "time",
+                sa.DateTime(timezone=True),
+                default=lambda: datetime.now(timezone.utc),
+                primary_key=True,
+            ),
+            sa.Column("type", sa.String),
+            sa.Column("message", sa.String),
+        )
+        for table in (
+            self.task_runs_table,
+            self.task_errors_table,
+        ):
+            with engine.begin() as conn:
+                table.create(conn, checkfirst=True)
 
-    @staticmethod
-    def upsert(table: sa.Table, **values):
-        statement = TasksDB.insert(table).values(**values)
+    def upsert(self, table: sa.Table, **values):
+        statement = self.insert(table).values(**values)
         on_conf_set = {c.name: c for c in statement.excluded}
         statement = statement.on_conflict_do_update(
             index_elements=table.primary_key.columns, set_=on_conf_set
         )
         with engine.begin() as conn:
             conn.execute(statement)
+
+@cache
+def get_tasks_db():
+    return TasksDB()

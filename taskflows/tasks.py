@@ -14,7 +14,7 @@ from pydantic import BaseModel
 
 from taskflows import logger as default_logger
 
-from .db import TasksDB, engine
+from .db import engine, get_tasks_db
 
 
 class Alerts(BaseModel):
@@ -33,6 +33,7 @@ def task(
     required: bool = False,
     retries: int = 0,
     timeout: Optional[int] = None,
+    db_record: bool = False,
     alerts: Optional[Sequence[Alerts]] = None,
     exit_on_complete: bool = False,
     logger: Optional[Logger] = None,
@@ -54,6 +55,7 @@ def task(
         task_logger = TaskLogger(
             name=name,
             required=required,
+            db_record=db_record,
             exit_on_complete=exit_on_complete,
             alerts=alerts,
         )
@@ -64,6 +66,7 @@ def task(
             wrapper,
             func=func,
             retries=retries,
+            db_record=db_record,
             timeout=timeout,
             task_logger=task_logger,
             logger=logger,
@@ -80,24 +83,29 @@ class TaskLogger:
         name: str,
         required: bool,
         exit_on_complete: bool,
+        db_record: bool = False,
         alerts: Optional[Sequence[Alerts]] = None,
     ):
         self.name = name
         self.required = required
+        self.db_record = db_record
         self.exit_on_complete = exit_on_complete
         self.alerts = alerts or []
         if isinstance(self.alerts, Alerts):
             self.alerts = [self.alerts]
+        if db_record:
+            self.db = get_tasks_db()
         self.errors = []
 
     def on_task_start(self):
         self.start_time = datetime.now(timezone.utc)
-        with engine.begin() as conn:
-            conn.execute(
-                sa.insert(TasksDB.task_runs_table).values(
-                    task_name=self.name, started=self.start_time
+        if self.db_record:
+            with engine.begin() as conn:
+                conn.execute(
+                    sa.insert(self.db.task_runs_table).values(
+                        task_name=self.name, started=self.start_time
+                    )
                 )
-            )
         if send_to := self._event_alerts("start"):
             components = [
                 Text(
@@ -110,13 +118,14 @@ class TaskLogger:
 
     def on_task_error(self, error: Exception):
         self.errors.append(error)
-        with engine.begin() as conn:
-            statement = sa.insert(TasksDB.task_errors_table).values(
-                task_name=self.name,
-                type=str(type(error)),
-                message=str(error),
-            )
-            conn.execute(statement)
+        if self.db_record:
+            with engine.begin() as conn:
+                statement = sa.insert(self.db.task_errors_table).values(
+                    task_name=self.name,
+                    type=str(type(error)),
+                    message=str(error),
+                )
+                conn.execute(statement)
         if send_to := self._event_alerts("error"):
             subject = f"{type(error)} Error executing task {self.name}"
             components = [
@@ -136,19 +145,20 @@ class TaskLogger:
     ) -> datetime:
         finish_time = datetime.now(timezone.utc)
         status = "success" if success else "failed"
-        with engine.begin() as conn:
-            conn.execute(
-                sa.update(TasksDB.task_runs_table)
-                .where(
-                    TasksDB.task_runs_table.c.task_name == self.name,
-                    TasksDB.task_runs_table.c.started == self.start_time,
+        if self.db_record:
+            with engine.begin() as conn:
+                conn.execute(
+                    sa.update(self.db.task_runs_table)
+                    .where(
+                        self.db.task_runs_table.c.task_name == self.name,
+                        self.db.task_runs_table.c.started == self.start_time,
+                    )
+                    .values(
+                        finished=finish_time,
+                        retries=retries,
+                        status=status,
+                    )
                 )
-                .values(
-                    finished=finish_time,
-                    retries=retries,
-                    status=status,
-                )
-            )
         if send_to := self._event_alerts("finish"):
             components = [
                 Text(

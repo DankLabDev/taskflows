@@ -100,6 +100,7 @@ class HTTPClient:
                 url=url, method=method, retries=retries - 1, **kwargs
             )
         return resp
+    
 class ShutdownHandler:
     def __init__(self, shutdown_on_exception: bool = False):
         self.shutdown_on_exception = shutdown_on_exception
