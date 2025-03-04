@@ -460,7 +460,7 @@ class DockerStartService(Service):
 
         super().__init__(
             name=name,
-            start_command=f"docker -a start {name}",
+            start_command=f"docker start -a {name}",
             stop_command=f"docker stop {name}",
             restart_command=f"docker restart {name}",
             start_command_blocking=True,
