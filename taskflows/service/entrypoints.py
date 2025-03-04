@@ -4,7 +4,6 @@ from functools import wraps
 
 from click import Group
 from dynamic_imports import import_module_attr
-
 from taskflows import logger
 from taskflows.common import get_shutdown_handler
 
@@ -37,7 +36,7 @@ def async_command(blocking: bool = False, shutdown_on_exception: bool = True):
             finally:
                 logger.info("Closing event loop")
                 loop.close()
-                logger.info("Exiting (%i)", sdh.exit_code)
+                logger.info("Exiting (%s)", sdh.exit_code)
                 sys.exit(sdh.exit_code)
 
         return wrapper
