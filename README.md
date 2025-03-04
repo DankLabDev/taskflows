@@ -99,3 +99,7 @@ TASKFLOWS_DOCKER_LOG_DRIVER
 TASKFLOWS_FLUENT_BIT_HOST
 TASKFLOWS_FLUENT_BIT_PORT
 
+### Dev Resources
+dbus docs:
+https://www.freedesktop.org/software/systemd/man/latest/org.freedesktop.systemd1.html
+https://pkg.go.dev/github.com/coreos/go-systemd/dbus

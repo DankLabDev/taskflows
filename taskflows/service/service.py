@@ -1,9 +1,3 @@
-"""
-dbus docs:
-https://www.freedesktop.org/software/systemd/man/latest/org.freedesktop.systemd1.html
-https://pkg.go.dev/github.com/coreos/go-systemd/dbus
-"""
-
 import os
 import re
 from abc import ABC, abstractmethod
@@ -466,10 +460,10 @@ class DockerStartService(Service):
 
         super().__init__(
             name=name,
-            start_command=f"docker start {name}",
+            start_command=f"docker -a start {name}",
             stop_command=f"docker stop {name}",
             restart_command=f"docker restart {name}",
-            start_command_blocking=False,
+            start_command_blocking=True,
             **kwargs,
         )
 
