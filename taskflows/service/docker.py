@@ -422,6 +422,24 @@ class DockerContainer:
         if isinstance(self.ulimits, Ulimit):
             self.ulimits = [self.ulimits]
 
+    def get_name(self) -> str:
+        if self.name is None:
+            if isinstance(self.image, DockerImage):
+                img_name = self.image.tag
+            else:
+                img_name = self.image.split("/")[-1].split(":")[0]
+            command_id = xxh32(str(self.command)).hexdigest()
+            self.name = f"{img_name}-{command_id}"
+        return self.name
+    
+    @property
+    def exists(self):
+        try:
+            get_docker_client().containers.get(self.get_name())
+            return True
+        except docker.errors.NotFound:
+            return False
+
     def create(self, **kwargs) -> Container:
         """Create a Docker container for running a script.
 
@@ -433,14 +451,7 @@ class DockerContainer:
             Container: The created Docker container.
         """
         # create default container name if one wasn't assigned.
-        if self.name is None:
-            if isinstance(self.image, DockerImage):
-                img_name = self.image.tag
-            else:
-                img_name = self.image.split("/")[-1].split(":")[0]
-            command_id = xxh32(str(self.command)).hexdigest()
-            self.name = f"{img_name}-{command_id}"
-
+        self.get_name()
         # remove any existing container with this name.
         self.delete()
         # if image is not build, it must be built.
