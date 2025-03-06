@@ -299,6 +299,7 @@ class Service:
         service = {
             f"ExecStart={self.start_command}",
             f"KillSignal={self.kill_signal}",
+            "TimeoutStopSec=120s",
         }
         if (not self.start_command_blocking) and self.stop_schedule:
             service.add("RemainAfterExit=yes")
