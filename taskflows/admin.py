@@ -25,22 +25,12 @@ from taskflows import _SYSTEMD_FILE_PREFIX
 
 from .config import config
 from .db import engine, get_tasks_db
-from .service.service import (
-    Service,
-    _disable_service,
-    _enable_service,
-    _remove_service,
-    _restart_service,
-    _start_service,
-    _stop_service,
-    extract_service_name,
-    get_schedule_info,
-    get_unit_file_states,
-    get_unit_files,
-    get_units,
-    reload_unit_files,
-    systemd_manager,
-)
+from .service.service import (Service, _disable_service, _enable_service,
+                              _remove_service, _restart_service,
+                              _start_service, _stop_service,
+                              extract_service_name, get_schedule_info,
+                              get_unit_file_states, get_unit_files, get_units,
+                              reload_unit_files, systemd_manager)
 
 cli = Group("taskflows", chain=True)
 
@@ -330,6 +320,9 @@ def start(match: str):
     Args:
         match (str): Name or pattern of services(s) to start.
     """
+    if not match:
+        click.echo("Must provide glob pattern")
+        return
     _start_service(get_unit_files(match=match))
     click.echo(click.style("Done!", fg="green"))
 
