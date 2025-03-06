@@ -10,7 +10,7 @@ from taskflows.common import get_shutdown_handler
 
 def async_command(blocking: bool = False, shutdown_on_exception: bool = True):
     def decorator(f):
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_event_loop_policy().get_event_loop()
         sdh = get_shutdown_handler()
         sdh.shutdown_on_exception = shutdown_on_exception
 
@@ -45,7 +45,7 @@ def async_command(blocking: bool = False, shutdown_on_exception: bool = True):
 
 
 class CLIGroup:
-    """Combine and optionaly lazy load multiple click CLIs."""
+    """Combine and optionally lazy load multiple click CLIs."""
     def __init__(self):
         self.cli = Group()
         self.commands = {}
