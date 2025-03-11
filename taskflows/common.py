@@ -167,4 +167,5 @@ class ShutdownHandler:
         logger.info("Cancelled %i outstanding tasks", len(tasks))
         self.exit_code = exit_code
         self.loop.stop()
+        self.loop.close()
         logger.info("Shutdown complete (exit code: %i)", exit_code)
