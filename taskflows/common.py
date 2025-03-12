@@ -165,11 +165,10 @@ class ShutdownHandler:
         logger.info("Cancelling %i outstanding tasks", len(tasks))
         for task in tasks:
             task.cancel()
-            try:
-                await task 
-            except asyncio.CancelledError:
-                pass
-        logger.info("Cancelled %i outstanding tasks", len(tasks))
+            #try:
+            #    await task 
+            #except asyncio.CancelledError:
+            #    pass
         self.loop.stop()
         #self.loop.close()
         logger.info("Shutdown complete. Exiting %s", exit_code)
