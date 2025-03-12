@@ -66,7 +66,6 @@ def task(
             wrapper,
             func=func,
             retries=retries,
-            db_record=db_record,
             timeout=timeout,
             task_logger=task_logger,
             logger=logger,
