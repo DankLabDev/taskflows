@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from functools import cache
 from pprint import pformat
 from typing import Any, Callable, Dict, Optional
+import sys
 
 import aiohttp
 from aiohttp import ClientSession, ClientTimeout
@@ -21,6 +22,7 @@ def get_shutdown_handler():
 def get_http_client(default_timeout: int = 120):
     return HTTPClient(default_timeout=default_timeout)
 
+# TODO frozen?
 @dataclass
 class HTTPResponse:
     ok: bool = False
@@ -104,9 +106,8 @@ class HTTPClient:
 class ShutdownHandler:
     def __init__(self, shutdown_on_exception: bool = False):
         self.shutdown_on_exception = shutdown_on_exception
-        self.loop = asyncio.get_event_loop()
+        self.loop = asyncio.get_event_loop_policy().get_event_loop()
         self.callbacks = []
-        self.exit_code = None
         self._shutdown_task = None
         self.loop.set_exception_handler(self._loop_exception_handle)
         for s in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
@@ -153,19 +154,24 @@ class ShutdownHandler:
         self._shutdown_task = self.loop.create_task(self._shutdown(exit_code))
 
     async def _shutdown(self, exit_code: int):
-        logger.info("Shutting down (exit code: %i)", exit_code)
+        logger.info("Shutting down.")
         for cb in self.callbacks:
             logger.info("Calling shutdown callback: %s", cb)
             try:
                 await asyncio.wait_for(cb(), timeout=5)
             except Exception as err:
                 logger.error("%s error in shutdown callback %s: %s", type(err), cb, err)
-        tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+        tasks = [t for t in asyncio.all_tasks(self.loop) if t is not asyncio.current_task()]
         logger.info("Cancelling %i outstanding tasks", len(tasks))
         for task in tasks:
             task.cancel()
+            try:
+                await task 
+            except asyncio.CancelledError:
+                pass
         logger.info("Cancelled %i outstanding tasks", len(tasks))
-        self.exit_code = exit_code
         self.loop.stop()
-        self.loop.close()
-        logger.info("Shutdown complete (exit code: %i)", exit_code)
+        #self.loop.close()
+        logger.info("Shutdown complete. Exiting %s", exit_code)
+        sys.exit(exit_code)
+

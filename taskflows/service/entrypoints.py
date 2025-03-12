@@ -27,18 +27,10 @@ def async_command(blocking: bool = False, shutdown_on_exception: bool = True):
         @wraps(f)
         def wrapper(*args, **kwargs):
             task = loop.create_task(async_command_async(*args, **kwargs))
-            try:
-                if blocking:
-                    loop.run_until_complete(task)
-
-                else:
-                    loop.run_forever()
-            finally:
-                logger.info("Closing event loop")
-                loop.close()
-                logger.info("Exiting (%s)", sdh.exit_code)
-                sys.exit(sdh.exit_code)
-
+            if blocking:
+                loop.run_until_complete(task)
+            else:
+                loop.run_forever()
         return wrapper
 
     return decorator
