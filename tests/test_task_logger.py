@@ -24,7 +24,6 @@ def create_task_logger(monkeypatch, request, db: Literal["sqlite", "postgres"]):
     return TaskLogger(
         name=str(uuid4()),
         required=False,
-        exit_on_complete=False,
     )
 
 

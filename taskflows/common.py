@@ -128,9 +128,6 @@ class ShutdownHandler:
 
     def _loop_exception_handle(self, loop, context):
         logger.error("Uncaught coroutine exception: %s", pformat(context))
-        # Log the context information
-        logger.error("Uncaught coroutine exception: %s", pformat(context))
-
         # Extract the exception object from the context
         exception = context.get("exception")
         if exception:
@@ -160,17 +157,11 @@ class ShutdownHandler:
             try:
                 await asyncio.wait_for(cb(), timeout=5)
             except Exception as err:
-                logger.error("%s error in shutdown callback %s: %s", type(err), cb, err)
-        tasks = [t for t in asyncio.all_tasks(self.loop) if t is not asyncio.current_task()]
+                logger.exception("%s error in shutdown callback %s: %s", type(err), cb, err)
+        tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
         logger.info("Cancelling %i outstanding tasks", len(tasks))
         for task in tasks:
             task.cancel()
-            #try:
-            #    await task 
-            #except asyncio.CancelledError:
-            #    pass
         self.loop.stop()
-        #self.loop.close()
-        logger.info("Shutdown complete. Exiting %s", exit_code)
+        logger.info("Exiting %s", exit_code)
         sys.exit(exit_code)
-

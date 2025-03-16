@@ -8,13 +8,13 @@ from taskflows import logger
 from taskflows.common import get_shutdown_handler
 
 
-def async_command(blocking: bool = False, shutdown_on_exception: bool = True):
+def async_entrypoint(blocking: bool = False, shutdown_on_exception: bool = True):
     def decorator(f):
         loop = asyncio.get_event_loop_policy().get_event_loop()
         sdh = get_shutdown_handler()
         sdh.shutdown_on_exception = shutdown_on_exception
 
-        async def async_command_async(*args, **kwargs):
+        async def async_entrypoint_async(*args, **kwargs):
             logger.info("Running main task: %s", f)
             try:
                 await f(*args, **kwargs)
@@ -26,11 +26,12 @@ def async_command(blocking: bool = False, shutdown_on_exception: bool = True):
 
         @wraps(f)
         def wrapper(*args, **kwargs):
-            task = loop.create_task(async_command_async(*args, **kwargs))
+            task = loop.create_task(async_entrypoint_async(*args, **kwargs))
             if blocking:
                 loop.run_until_complete(task)
             else:
                 loop.run_forever()
+
         return wrapper
 
     return decorator

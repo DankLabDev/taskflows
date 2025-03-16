@@ -35,7 +35,6 @@ def task(
     timeout: Optional[int] = None,
     db_record: bool = False,
     alerts: Optional[Sequence[Alerts]] = None,
-    exit_on_complete: bool = False,
     logger: Optional[Logger] = None,
 ):
     """Decorator for task functions.
@@ -46,7 +45,6 @@ def task(
         retries (int, optional): How many times to retry the task on failure. Defaults to 0.
         timeout (Optional[int], optional): Timeout for function execution. Defaults to None.
         alerts (Optional[Sequence[Alerts]], optional): Alert configurations / destinations.
-        exit_on_complete (bool, optional): Exit Python interpreter with task result status code when task is finished. Defaults to False.
     """
     logger = logger or default_logger
 
@@ -56,7 +54,6 @@ def task(
             name=name,
             required=required,
             db_record=db_record,
-            exit_on_complete=exit_on_complete,
             alerts=alerts,
         )
         wrapper = (
@@ -81,14 +78,12 @@ class TaskLogger:
         self,
         name: str,
         required: bool,
-        exit_on_complete: bool,
         db_record: bool = False,
         alerts: Optional[Sequence[Alerts]] = None,
     ):
         self.name = name
         self.required = required
         self.db_record = db_record
-        self.exit_on_complete = exit_on_complete
         self.alerts = alerts or []
         if isinstance(self.alerts, Alerts):
             self.alerts = [self.alerts]
@@ -192,8 +187,6 @@ class TaskLogger:
                     )
             send_alert(content=components, send_to=send_to)
         if self.errors and self.required:
-            if self.exit_on_complete:
-                sys.exit(1)
             if len(self.errors) > 1:
                 error_types = {type(e) for e in self.errors}
                 if len(error_types) == 1:
@@ -205,8 +198,6 @@ class TaskLogger:
                     f"{len(self.errors)} errors executing task {self.name}: {self.errors}"
                 )
             raise type(self.errors[0])(str(self.errors[0]))
-        if self.exit_on_complete:
-            sys.exit(0 if success else 1)
 
     def _event_alerts(self, event: Literal["start", "error", "finish"]) -> List[MsgDst]:
         send_to = []
