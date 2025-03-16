@@ -41,6 +41,7 @@ class RestartPolicy:
         "on-abnormal",
         "on-abort",
         "on-watchdog",
+        "no",
     ]
 
     @property
@@ -125,7 +126,7 @@ class Service:
     # signal used to stop the service.
     kill_signal: str = "SIGTERM"
     description: Optional[str] = None
-    restart_policy: Optional[Union[str, RestartPolicy]] = None
+    restart_policy: Optional[Union[str, RestartPolicy]] = 'no'
     hardware_constraints: Optional[
         Union[HardwareConstraint, Sequence[HardwareConstraint]]
     ] = None
@@ -350,7 +351,7 @@ class Service:
             unit.add(f"StopPropagatedFrom={join(self.propagate_stop_from)}")
         if self.restart_policy:
             restart_policy = (
-                RestartPolicy(self.restart_policy)
+                RestartPolicy(policy=self.restart_policy)
                 if isinstance(self.restart_policy, str)
                 else self.restart_policy
             )
