@@ -274,7 +274,7 @@ def logs(service_name: str):
 def create(search_in: str, include: Optional[str] = None, exclude: Optional[str] = None):
     services = class_inst(class_type=Service, search_in=search_in)
     if include:
-        services = [s for s in services if fnmatchcase(name=s.name, pot=include)]
+        services = [s for s in services if fnmatchcase(name=s.name, pat=include)]
     if exclude:
         services = [s for s in services if not fnmatchcase(name=s.name, pat=exclude)]
     click.echo(
