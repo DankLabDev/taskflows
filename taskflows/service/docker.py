@@ -360,9 +360,8 @@ class DockerContainer:
     # Mount the containeras root filesystem as read
     # only.
     read_only: Optional[bool] = None
-    # Restart the container when it exits.
-    # Configured as a dictionary with keys:For example:
-    restart_policy: Optional[dict] = None
+    # Restart the container when it exits?
+    restart_policy: Literal['no','always','unless-stopped','on-failure'] = 'no'
     # Runtime to use with this container.
     runtime: Optional[str] = None
     # A list of string values to
@@ -421,6 +420,7 @@ class DockerContainer:
             self.volumes = [self.volumes]
         if isinstance(self.ulimits, Ulimit):
             self.ulimits = [self.ulimits]
+        self.restart_policy = {"Name": self.restart_policy}
 
     def get_name(self) -> str:
         if self.name is None:
