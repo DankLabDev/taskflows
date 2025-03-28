@@ -29,7 +29,7 @@ class Alerts(BaseModel):
 
 
 def task(
-    name: str,
+    name: Optional[str] = None,
     required: bool = False,
     retries: int = 0,
     timeout: Optional[int] = None,
@@ -43,7 +43,7 @@ def task(
         name (str): Name which should be used to identify the task.
         required (bool, optional): Required tasks will raise exceptions. Defaults to False.
         retries (int, optional): How many times to retry the task on failure. Defaults to 0.
-        timeout (Optional[int], optional): Timeout for function execution. Defaults to None.
+        timeout (Optional[int], optional): Timeout (seconds) for function execution. Defaults to None.
         alerts (Optional[Sequence[Alerts]], optional): Alert configurations / destinations.
     """
     logger = logger or default_logger
@@ -51,7 +51,7 @@ def task(
     def task_decorator(func):
         # @functools.wraps(func)
         task_logger = TaskLogger(
-            name=name,
+            name=name or func.__name__,
             required=required,
             db_record=db_record,
             alerts=alerts,
