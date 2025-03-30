@@ -6,11 +6,11 @@ from datetime import datetime
 from functools import cache
 from pathlib import Path
 from pprint import pformat
-from typing import (Callable, Dict, List, Literal, Optional, Sequence, Set,
-                    Union)
+from typing import Callable, Dict, List, Literal, Optional, Sequence, Set, Union
 
 import cloudpickle
 import dbus
+
 from taskflows import _SYSTEMD_FILE_PREFIX, logger
 from taskflows.config import taskflows_data_dir
 
@@ -28,7 +28,13 @@ systemd_dir = Path.home().joinpath(".config", "systemd", "user")
 def extract_service_name(unit: str | Path) -> List[str]:
     return re.sub(f"^{_SYSTEMD_FILE_PREFIX}", "", Path(unit).stem)
 
-
+@dataclass
+class MaxRestarts:
+    # period in seconds where restarts_per_period number of restarts is allowed.
+    period_seconds: int
+    # number of restarts allowed in specified period.
+    restarts_per_period: int
+    
 @dataclass
 class RestartPolicy:
     """Service restart policy."""
@@ -43,42 +49,25 @@ class RestartPolicy:
         "on-watchdog",
         "no",
     ]
+    # seconds to wait before attempting restart.
+    restart_delay: Optional[int] = None
+    max_restarts: Optional[MaxRestarts] = None
 
     @property
     def unit_entries(self) -> Set[str]:
-        return set()
-
-    @property
-    def service_entries(self) -> Set[str]:
-        return {f"Restart={self.policy}"}
-
-
-@dataclass
-class DelayRestartPolicy(RestartPolicy):
-    # seconds to wait before attempting restart.
-    restart_delay: int = 1
-
-    @property
-    def service_entries(self) -> Set[str]:
-        entries = {f"RestartSec={self.restart_delay}"}
-        entries.update(super().service_entries)
+        entries = set()
+        if self.max_restarts:
+            entries.update({
+                f"StartLimitIntervalSec={self.max_restarts.period_seconds}",
+                f"StartLimitBurst={self.max_restarts.restarts_per_period}",
+            })
         return entries
 
-
-@dataclass
-class BurstRestartPolicy(RestartPolicy):
-    # number of restarts allowed in specified period.
-    restarts_per_period: int = 1000
-    # period in seconds where restarts_per_period number of restarts is allowed.
-    restart_period_sec: int = 1
-
     @property
-    def unit_entries(self) -> Set[str]:
-        entries = {
-            f"StartLimitIntervalSec={self.restart_period_sec}",
-            f"StartLimitBurst={self.restarts_per_period}",
-        }
-        entries.update(super().unit_entries)
+    def service_entries(self) -> Set[str]:
+        entries = {f"Restart={self.policy}"}
+        if self.restart_delay:
+            entries.add(f"RestartSec={self.restart_delay}")
         return entries
 
 
@@ -126,7 +115,7 @@ class Service:
     # signal used to stop the service.
     kill_signal: str = "SIGTERM"
     description: Optional[str] = None
-    restart_policy: Optional[Union[str, RestartPolicy]] = 'no'
+    restart_policy: Optional[Union[str, RestartPolicy, Sequence[RestartPolicy]]] = 'no'
     hardware_constraints: Optional[
         Union[HardwareConstraint, Sequence[HardwareConstraint]]
     ] = None
@@ -349,14 +338,6 @@ class Service:
             unit.add(f"PropagatesStopTo={join(self.propagate_stop_to)}")
         if self.propagate_stop_from:
             unit.add(f"StopPropagatedFrom={join(self.propagate_stop_from)}")
-        if self.restart_policy:
-            restart_policy = (
-                RestartPolicy(policy=self.restart_policy)
-                if isinstance(self.restart_policy, str)
-                else self.restart_policy
-            )
-            unit.update(restart_policy.unit_entries)
-            service.update(restart_policy.service_entries)
         if self.hardware_constraints:
             if isinstance(self.hardware_constraints, (list, tuple)):
                 for hc in self.hardware_constraints:
@@ -369,6 +350,13 @@ class Service:
                     unit.update(slc.unit_entries)
             else:
                 unit.update(self.system_load_constraints.unit_entries)
+        if not isinstance(self.restart_policy, (list, tuple)):
+            self.restart_policy = [self.restart_policy]
+        for rp in self.restart_policy:
+            if isinstance(rp, str):
+                rp = RestartPolicy(policy=rp)
+                unit.update(rp.unit_entries)
+                service.update(rp.service_entries)
         srv_file = self._write_service_file(unit=unit, service=service)
         # TODO ExecCondition, ExecStartPre, ExecStartPost?
         if self.stop_schedule:
