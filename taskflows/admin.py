@@ -7,7 +7,7 @@ from fnmatch import fnmatchcase
 from functools import lru_cache
 from itertools import cycle
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 from zoneinfo import ZoneInfo
 
 import click
@@ -25,12 +25,22 @@ from taskflows import _SYSTEMD_FILE_PREFIX
 
 from .config import config
 from .db import engine, get_tasks_db
-from .service.service import (Service, _disable_service, _enable_service,
-                              _remove_service, _restart_service,
-                              _start_service, _stop_service,
-                              extract_service_name, get_schedule_info,
-                              get_unit_file_states, get_unit_files, get_units,
-                              reload_unit_files, systemd_manager)
+from .service.service import (
+    Service,
+    _disable_service,
+    _enable_service,
+    _remove_service,
+    _restart_service,
+    _start_service,
+    _stop_service,
+    extract_service_name,
+    get_schedule_info,
+    get_unit_file_states,
+    get_unit_files,
+    get_units,
+    reload_unit_files,
+    systemd_manager,
+)
 
 cli = Group("taskflows", chain=True)
 
@@ -48,30 +58,58 @@ cli = Group("taskflows", chain=True)
 )
 def history(limit: int, match: str = None):
     """Print task run history to console display."""
-    # https://rich.readthedocs.io/en/stable/appendix/colors.html#appendix-colors
+    
+    # Import the task runs table from the database
     table = get_tasks_db().task_runs_table
+    
+    # Initialize a console to print the output
     console = Console()
+    
+    # Define the color scheme for table columns
     column_color = table_column_colors()
+    
+    # Create a query to select distinct task names from the task runs table
     task_names_query = sa.select(table.c.task_name).distinct()
+    
+    # If a match pattern is provided, filter the task names using the pattern
     if match:
         task_names_query = task_names_query.where(table.c.task_name.like(f"%{match}%"))
+    
+    # Create a query to select all columns from the table, filtered by task names
+    # Order the results by the most recent start time and task name
     query = (
         sa.select(table)
         .where(table.c.task_name.in_(task_names_query))
         .order_by(table.c.started.desc(), table.c.task_name)
     )
+    
+    # Limit the number of results if a limit is provided
     if limit:
         query = query.limit(limit)
+    
+    # Format column names to be more readable in the table (replace underscores and title-case)
     columns = [c.name.replace("_", " ").title() for c in table.columns]
+    
+    # Execute the query and fetch all results in a transaction
     with engine.begin() as conn:
         rows = [dict(zip(columns, row)) for row in conn.execute(query).fetchall()]
+    
+    # Create a table with a simple box style and a title
     table = Table(title="Task History", box=box.SIMPLE)
+    
+    # Remove the 'Retries' column if all its values are zero
     if all(row["Retries"] == 0 for row in rows):
         columns.remove("Retries")
+    
+    # Add columns to the table with specified styles
     for c in columns:
         table.add_column(c, style=column_color(c), justify="center")
+    
+    # Add rows of data to the table
     for row in rows:
         table.add_row(*[str(row[c]) for c in columns])
+    
+    # Print the table to the console, centered
     console.print(table, justify="center")
 
 
@@ -79,23 +117,63 @@ def history(limit: int, match: str = None):
 @click.argument("match", required=False)
 def list_services(match):
     """List services."""
+    # Get a list of all service files matching the provided pattern
     files = get_unit_files(match=match, unit_type="service")
-    if files:
-        srv_names = sort_service_names([extract_service_name(f) for f in files])
-        for srv in srv_names:
-            click.echo(click.style(srv, fg="cyan"))
-    else:
+    
+    # If there are no matching files, print a message and exit
+    if not files:
         click.echo(click.style("No services found.", fg="yellow"))
+        return
+    
+    # Extract the service names from the file names
+    srv_names = [extract_service_name(f) for f in files]
+    
+    # Sort the service names
+    srv_names = sort_service_names(srv_names)
+    
+    # Print the sorted service names to the console
+    for srv in srv_names:
+        click.echo(click.style(srv, fg="cyan"))
 
 
 @cli.command
 @click.option(
-    "-m", "--match", help="Only show history for this task name or task name pattern."
+    "-m",
+    "--match",
+    help="Only show history for this task name or task name pattern.",
 )
-@click.option("-r", "--running", is_flag=True, help="Only show running services.")
+@click.option(
+    "-r",
+    "--running",
+    is_flag=True,
+    help="Only show running services.",
+)
 def status(match: str, running: bool):
-    """Get status of service(s)."""
+    """Get status of service(s).
+
+    This command shows information about services managed by Taskflows.
+
+    The output is a table with the following columns:
+
+        Service: The name of the service.
+        Description: A human-readable description of the service.
+        Enabled: Whether the service is enabled to run by systemd.
+        Load State: The state of the service's unit file.
+        Active State: The state of the service.
+        Sub State: A more detailed state of the service.
+        Last Start: The time the service was last started.
+        Uptime: The time the service has been running, if it is currently running.
+        Last Finish: The time the service last finished.
+        Next Start: The next time the service is scheduled to start, if applicable.
+        Timers: The timers that trigger the service, if applicable.
+
+    The output is sorted by service name.
+
+    If the `--running` flag is provided, only services that are currently running are shown.
+    """
+    # Get all service files matching the provided pattern
     file_states = get_unit_file_states(unit_type="service", match=match)
+    # If there are no matching files, print a message and exit
     if not file_states:
         click.echo(click.style("No services found.", fg="yellow"))
         return
@@ -271,12 +349,37 @@ def logs(service_name: str):
         f"journalctl --user -f -u {_SYSTEMD_FILE_PREFIX}{service_name}".split()
     )
 
-def create(search_in: str, include: Optional[str] = None, exclude: Optional[str] = None):
+def create(
+    search_in: str, include: Optional[str] = None, exclude: Optional[str] = None
+) -> None:
+    """
+    Create taskflow services from a given source.
+
+    Args:
+        search_in (str): A directory path or module name to search for taskflow services.
+        include (str, optional): A glob pattern of service names to include. Defaults to None.
+        exclude (str, optional): A glob pattern of service names to exclude. Defaults to None.
+    """
+    # search for all Services in the given search_in path.
     services = class_inst(class_type=Service, search_in=search_in)
+
+    # if include is given, filter the services to only include those that match the pattern.
     if include:
-        services = [s for s in services if fnmatchcase(name=s.name, pat=include)]
+        services = [
+            s  # type: ignore
+            for s in services
+            if fnmatchcase(name=s.name, pat=include)  # type: ignore
+        ]
+
+    # if exclude is given, filter the services to exclude those that match the pattern.
     if exclude:
-        services = [s for s in services if not fnmatchcase(name=s.name, pat=exclude)]
+        services = [
+            s  # type: ignore
+            for s in services
+            if not fnmatchcase(name=s.name, pat=exclude)  # type: ignore
+        ]
+
+    # print the number of services found after filtering.
     click.echo(
         click.style(
             f"Creating {len(services)} service(s) from {search_in}",
@@ -284,8 +387,12 @@ def create(search_in: str, include: Optional[str] = None, exclude: Optional[str]
             bold=True,
         )
     )
+
+    # create each service. defer_reload=True means that the service will be created but not started.
     for srv in services:
         srv.create(defer_reload=True)
+
+    # reload the systemd daemon to pick up the new service files.
     reload_unit_files()
 
 @cli.command(name="create")
@@ -395,26 +502,65 @@ def remove(match: str):
 @click.argument("match", required=False)
 def show(match: str):
     """Show services file contents."""
+    # Get a dict of the form {service_name: [file1, file2, ...]}
+    # where each file is either a service file or a timer file
+    # that belongs to the given service.
     srv_files = defaultdict(list)
     for unit_type in ("service", "timer"):
+        # For each file that matches the given unit type and
+        # glob pattern, add it to the list of files for the
+        # service that owns it.
         for file in get_unit_files(unit_type=unit_type, match=match):
             file = Path(file)
-            srv_files[
-                re.sub(f"^(?:stop-)?{_SYSTEMD_FILE_PREFIX}", "", file.stem)
-            ].append(file)
+            # The stem of the file is the name without the
+            # extension. We remove the prefix that we added
+            # when we created the file so that we can
+            # identify the service name.
+            srv_name = re.sub(
+                f"^(?:stop-)?{_SYSTEMD_FILE_PREFIX}", "", file.stem
+            )
+            srv_files[srv_name].append(file)
+    # We use the rich library to print the file contents
+    # with a nice title and border.
     console = Console()
+    # We sort the service names so that they are printed in
+    # a consistent order.
     for srv_name in sort_service_names(srv_files.keys()):
         files = srv_files[srv_name]
+        # Print a title with the service name and a line
+        # underneath it.
         console.rule(f"[bold green]{srv_name}")
+        # For each file, print its contents in a panel.
         for file in files:
             console.print(
-                Panel.fit(file.read_text(), title=str(file)),
+                # The Panel class is a rich widget that
+                # prints a box around the given text.
+                Panel.fit(
+                    # The contents of the file.
+                    file.read_text(),
+                    # The title of the panel is the name of
+                    # the file.
+                    title=str(file),
+                ),
+                # The panel should be centered horizontally.
                 justify="center",
+                # The style of the panel should be cyan.
                 style="cyan",
             )
 
 
 def table_column_colors():
+    """
+    Returns a function that assigns colors to table columns.
+
+    This function uses a cycle of predefined colors and a least-recently-used
+    cache to generate a consistent color for each column name. The colors are
+    cycled through as column names are provided.
+
+    Returns:
+        A function that takes a column name as input and returns a color string.
+    """
+
     colors_gen = cycle(
         [
             "cyan",
@@ -432,24 +578,53 @@ def table_column_colors():
     return column_color
 
 
-def sort_service_names(services):
+def sort_service_names(services: List[str]) -> List[str]:
+    """
+    Sort service names to display in a list.
+
+    This function takes a list of strings, where each string is a service name.
+    It returns a list of strings, sorted such that a service with a name that
+    starts with "stop-" will come after its corresponding service without the
+    "stop-" prefix.
+
+    The sorting is done by finding the longest common substring between
+    consecutive service names, and ordering them based on that substring.
+    """
+    # Define the prefix used for stopped services
     stop_prefix = f"stop-{_SYSTEMD_FILE_PREFIX}"
+    
+    # Separate services into two categories: those that start with the stop prefix and those that do not
     stop_services, non_stop_services = [], []
     for srv in services:
         if srv.startswith(stop_prefix):
             stop_services.append(srv)
         else:
             non_stop_services.append(srv)
+
+    # Normalize non-stop service names by replacing hyphens and underscores with spaces for similarity comparison
     non_stop_services = [
         (s, s.replace("-", " ").replace("_", " ")) for s in non_stop_services
     ]
+    
+    # Start the ordering process with the first non-stop service
     srv, filt_srv = non_stop_services.pop(0)
     ordered = [srv]
+    
+    # Continue ordering the remaining non-stop services
     while non_stop_services:
+        # Find the service with the greatest similarity to the current service
         best = max(non_stop_services, key=lambda o: lcsseq.similarity(filt_srv, o[1]))
+        
+        # Update the current service and filtered service to the best match found
         srv, filt_srv = best
+        
+        # Remove the matched service from the list and append it to the ordered list
         non_stop_services.remove(best)
         ordered.append(srv)
+        
+        # Check if the corresponding stop service exists and append it if found
         if (stp_srv := f"{stop_prefix}{srv}") in stop_services:
             ordered.append(stp_srv)
+    
+    # Return the fully ordered list of services
     return ordered
