@@ -105,9 +105,9 @@ class Service:
     # command to execute to stop the service command.
     stop_command: Optional[str] = None
     # when the service should be started.
-    start_schedule: Optional[Union[Schedule, Sequence[Schedule]]] = None
+    start_schedule: Optional[Schedule | Sequence[Schedule]] = None
     # when the service should be stopped.
-    stop_schedule: Optional[Union[Schedule, Sequence[Schedule]]] = None
+    stop_schedule: Optional[Schedule | Sequence[Schedule]] = None
     # command to execute when the service is restarted.
     restart_command: Optional[str] = None
     # virtual environment where commands should be executed.
@@ -115,12 +115,12 @@ class Service:
     # signal used to stop the service.
     kill_signal: str = "SIGTERM"
     description: Optional[str] = None
-    restart_policy: Optional[Union[str, RestartPolicy, Sequence[RestartPolicy]]] = 'no'
+    restart_policy: Optional[str | RestartPolicy | Sequence[RestartPolicy]] = 'no'
     hardware_constraints: Optional[
-        Union[HardwareConstraint, Sequence[HardwareConstraint]]
+        HardwareConstraint | Sequence[HardwareConstraint]
     ] = None
     system_load_constraints: Optional[
-        Union[SystemLoadConstraint, Sequence[SystemLoadConstraint]]
+        SystemLoadConstraint | Sequence[SystemLoadConstraint]
     ] = None
     # make sure this service is fully started before begining startup of these services.
     start_before: Optional[ServicesT] = None
@@ -169,7 +169,7 @@ class Service:
     # environment variables for the service.
     env: Optional[Dict[str, str]] = None
     # working directory for the service.
-    working_directory: Optional[Union[str, Path]] = None
+    working_directory: Optional[str | Path] = None
 
     def __post_init__(self):
         if self.venv is not None:
@@ -610,7 +610,7 @@ def get_schedule_info(unit: str):
 def get_unit_files(
     unit_type: Optional[Literal["service", "timer"]] = None,
     match: Optional[str] = None,
-    states: Optional[Union[str, Sequence[str]]] = None,
+    states: Optional[str | Sequence[str]] = None,
 ) -> List[str]:
     """Get a list of paths of taskflow unit files."""
     file_states = get_unit_file_states(unit_type=unit_type, match=match, states=states)
@@ -620,7 +620,7 @@ def get_unit_files(
 def get_unit_file_states(
     unit_type: Optional[Literal["service", "timer"]] = None,
     match: Optional[str] = None,
-    states: Optional[Union[str, Sequence[str]]] = None,
+    states: Optional[str | Sequence[str]] = None,
 ) -> Dict[str, str]:
     """Map taskflow unit file path to unit state."""
     states = states or []
@@ -634,7 +634,7 @@ def get_unit_file_states(
 def get_units(
     unit_type: Optional[Literal["service", "timer"]] = None,
     match: Optional[str] = None,
-    states: Optional[Union[str, Sequence[str]]] = None,
+    states: Optional[str | Sequence[str]] = None,
 ) -> List[Dict[str, str]]:
     """Get metadata for taskflow units."""
     states = states or []

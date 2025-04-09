@@ -205,7 +205,7 @@ class ShutdownHandler:
                 lambda s=s: self.loop.create_task(self._on_signal_interrupt(s)),
             )
 
-    def add_callback(self, cb: Callable[[None],None]):
+    def add_callback(self, cb: Callable[[], None]):
         """
         Registers a coroutine function to be called on shutdown.
 
@@ -237,7 +237,7 @@ class ShutdownHandler:
             self._create_shutdown_task(exit_code)
         return await self._shutdown_task
 
-    def _loop_exception_handle(self, loop: Any, context: Dict[str,Any]):
+    def _loop_exception_handle(self, loop: Any, context: Dict[str, Any]):
         """
         Exception handler for the event loop.
 

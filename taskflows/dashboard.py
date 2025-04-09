@@ -2,7 +2,7 @@
 import json
 import os
 from dataclasses import dataclass
-from typing import List, Literal, Optional, Union
+from typing import List, Literal, Optional
 
 import requests
 from grafanalib._gen import DashboardEncoder
@@ -51,13 +51,13 @@ class LogsCountPlot(ServiceLogsPanel):
             self.title = f"{self.service.name}: {self.text} Counts"
 
 
-def create_dashboard(title: str, panels_grid: list[Union[ServiceLogsPanel, List[ServiceLogsPanel]]]) -> Dashboard:
+def create_dashboard(title: str, panels_grid: list[ServiceLogsPanel | List[ServiceLogsPanel]]) -> Dashboard:
     # check arg.
     for panels in panels_grid:
         if isinstance(panels, ServiceLogsPanel):
             continue
         if not all(isinstance(p, ServiceLogsPanel) for p in panels):
-            raise ValueError("panels_grid must be list[Union[ServiceLogsPanel, List[ServiceLogsPanel]]].")
+            raise ValueError("panels_grid must be list[ServiceLogsPanel | List[ServiceLogsPanel]].")
         if len(panels) > 24:
             raise ValueError("Each row in panels_grid can have at most 24 panels.")
     panels = []
