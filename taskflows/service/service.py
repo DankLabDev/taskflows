@@ -6,7 +6,7 @@ from datetime import datetime
 from functools import cache
 from pathlib import Path
 from pprint import pformat
-from typing import Callable, Dict, List, Literal, Optional, Sequence, Set, Union
+from typing import Callable, Dict, List, Literal, Optional, Sequence, Set
 
 import cloudpickle
 import dbus
@@ -19,8 +19,8 @@ from .docker import DockerContainer, delete_docker_container
 from .exec import deserialize_and_call
 from .schedule import Schedule
 
-ServiceT = Union[str, "Service"]
-ServicesT = Union[ServiceT, Sequence[ServiceT]]
+ServiceT = str | "Service"
+ServicesT = ServiceT | Sequence[ServiceT]
 
 systemd_dir = Path.home().joinpath(".config", "systemd", "user")
 

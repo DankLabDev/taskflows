@@ -29,7 +29,9 @@ dependencies = [
     "docker",
     "dbus-python",
     "aiohttp",
-    "xxhash"
+    "xxhash",
+    "slack-bolt>=1.16.0",
+    "slack-sdk>=3.19.0"
 ]
 
 [tool.setuptools]
@@ -45,6 +47,7 @@ build-backend = "setuptools.build_meta"
 
 [project.scripts]
 tf = 'taskflows.admin:cli'
+tf-slack = 'taskflows.slack.cli:main'
 _run_docker_service = 'taskflows.service.exec:_run_docker_service'
 _deserialize_and_call = 'taskflows.service.exec:_deserialize_and_call'
 _run_function = 'taskflows.service.exec:_run_function'
