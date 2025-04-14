@@ -19,8 +19,8 @@ from .docker import DockerContainer, delete_docker_container
 from .exec import deserialize_and_call
 from .schedule import Schedule
 
-ServiceT = Union[str | "Service"]
-ServicesT = Union[ServiceT | Sequence[ServiceT]]
+ServiceT = Union[str, "Service"]
+ServicesT = Union[ServiceT, Sequence[ServiceT]]
 
 systemd_dir = Path.home().joinpath(".config", "systemd", "user")
 
