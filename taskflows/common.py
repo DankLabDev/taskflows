@@ -1,12 +1,12 @@
 import asyncio
 import inspect
 import signal
+import sys
 import traceback
 from dataclasses import dataclass, field
 from functools import cache
 from pprint import pformat
 from typing import Any, Callable, Dict, Optional
-import sys
 
 import aiohttp
 from aiohttp import ClientSession, ClientTimeout
@@ -73,7 +73,8 @@ class HTTPClient:
                     )
                 resp.headers = dict(response.headers)
                 try:
-                    resp.content = await response.json()
+                    data = await response.json()
+                    resp.content = data or {}
                 except aiohttp.client_exceptions.ContentTypeError:
                     text = await response.text()
                     if text:
