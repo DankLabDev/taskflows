@@ -1,0 +1,44 @@
+# File: .github/workflows/publish-on-version-bump.yml
+name: Publish to PyPI on version bump
+
+on:
+  push:
+    paths:
+      - 'pyproject.toml'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    permissions:
+      id-token: write  # required for trusted publishing.
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Check if this is a new version
+        id: version_check
+        uses: MathieuMoalic/action-python-package-new-version@v1.0.1
+
+      - name: Set up Python
+        if: steps.version_check.outputs.NEW_VERSION == 'true'
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - name: Install build dependencies
+        if: steps.version_check.outputs.NEW_VERSION == 'true'
+        run: |
+          python -m pip install --upgrade pip
+          pip install build
+
+      - name: Build distributions
+        if: steps.version_check.outputs.NEW_VERSION == 'true'
+        run: python -m build
+
+      - name: Publish to PyPI
+        if: steps.version_check.outputs.NEW_VERSION == 'true'
+        uses: pypa/gh-action-pypi-publish@release/v1
+
