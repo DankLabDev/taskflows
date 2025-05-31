@@ -18,25 +18,29 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Python Package New Version
-        uses: MathieuMoalic/action-python-package-new-version@v1.0.1
-
       - name: Set up Python
-        if: env.PUBLISHING == 'true'
         uses: actions/setup-python@v4
         with:
           python-version: '3.x'
+      - name: Detect version bump
+        id: version
+        shell: bash
+        run: |
+          new=$(grep -Po '^(?i)version\s*=\s*"\K[^"]+' pyproject.toml)
+          old=$(git show -q HEAD^:pyproject.toml 2>/dev/null \
+                  | grep -Po '^(?i)version\s*=\s*"\K[^"]+' || echo "none")
+          echo "old=$old"   >> "$GITHUB_OUTPUT"
+          echo "new=$new"   >> "$GITHUB_OUTPUT"
+          echo "bumped=$([ "$new" != "$old" ] && echo true || echo false)" \
+               >> "$GITHUB_OUTPUT"
 
-      - name: Install build dependencies
-        if: env.PUBLISHING == 'true'
+      - name: Build sdist + wheel
+        if: steps.version.outputs.bumped == 'true'
         run: |
           python -m pip install --upgrade pip
-          pip install build
-
-      - name: Build distributions
-        if: env.PUBLISHING == 'true'
-        run: python -m build
+          python -m pip install --upgrade build
+          python -m build                       # → dist/*.tar.gz + *.whl
 
       - name: Publish to PyPI
-        if: env.PUBLISHING == 'true'
+        if: steps.version.outputs.bumped == 'true'
         uses: pypa/gh-action-pypi-publish@release/v1
