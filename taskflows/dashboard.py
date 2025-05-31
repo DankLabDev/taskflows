@@ -51,7 +51,7 @@ class LogsCountPlot(ServiceLogsPanel):
             self.title = f"{self.service.name}: {self.text} Counts"
 
 
-def create_dashboard(title: str, panels_grid: list[ServiceLogsPanel | List[ServiceLogsPanel]]) -> Dashboard:
+def create_dashboard(title: str, panels_grid: List[ServiceLogsPanel | List[ServiceLogsPanel]]) -> Dashboard:
     # check arg.
     for panels in panels_grid:
         if isinstance(panels, ServiceLogsPanel):

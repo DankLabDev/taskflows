@@ -3,13 +3,9 @@ import inspect
 import signal
 import sys
 import traceback
-from dataclasses import dataclass, field
 from functools import cache
 from pprint import pformat
-from typing import Any, Callable, Dict, Optional
-
-import aiohttp
-from aiohttp import ClientSession, ClientTimeout
+from typing import Any, Callable, Dict
 
 from taskflows import logger
 
@@ -25,163 +21,7 @@ def get_shutdown_handler():
     """
     return ShutdownHandler()
 
-@cache
-def get_http_client(default_timeout: int = 120):
-    """
-    Return an HTTPClient with the given default timeout.
 
-    This function is memoized.
-
-    :param default_timeout: The default timeout to use for all requests.
-    :return: An HTTPClient instance.
-    """
-    return HTTPClient(default_timeout=default_timeout)
-
-# TODO frozen?
-@dataclass
-class HTTPResponse:
-    ok: bool = False
-    content: Dict[str, Any] = field(default_factory=dict)
-    status_code: int = -1
-    headers: Dict[str, Any] = field(default_factory=dict)
-
-
-class HTTPClient:
-    def __init__(self, default_timeout: int):
-        """
-        Create a new HTTPClient instance.
-
-        :param default_timeout: The default timeout to use for all requests.
-        """
-        self.session = ClientSession(timeout=ClientTimeout(total=default_timeout))
-
-    async def get(self, url: str, **kwargs) -> HTTPResponse:
-        """
-        Make a GET request to the given URL.
-
-        :param url: The URL to get.
-        :param kwargs: Any additional keyword arguments will be passed to
-            `ClientSession.request`.
-        :return: An HTTPResponse object containing the result of the request.
-        """
-        return await self._request(url=url, method="GET", **kwargs)
-
-    async def post(self, url: str, **kwargs) -> HTTPResponse:
-        """
-        Make a POST request to the given URL.
-
-        :param url: The URL to post to.
-        :param kwargs: Any additional keyword arguments will be passed to
-            `ClientSession.request`.
-        :return: An HTTPResponse object containing the result of the request.
-        """
-        return await self._request(url=url, method="POST", **kwargs)
-
-    async def delete(self, url: str, **kwargs) -> HTTPResponse:
-        """
-        Make a DELETE request to the given URL.
-
-        :param url: The URL to delete.
-        :param kwargs: Any additional keyword arguments will be passed to
-            `ClientSession.request`.
-        :return: An HTTPResponse object containing the result of the request.
-        """
-        return await self._request(url=url, method="DELETE", **kwargs)
-
-    async def close(self):
-        """
-        Close the HTTP client's session.
-
-        This method should be called to properly close the session and release
-        any resources associated with it.
-        """
-        await self.session.close()
-
-    async def _request(
-        self,
-        url: str,
-        method: str,
-        retries: int = 1,
-        on_retry: Optional[Callable] = None,
-        **kwargs
-    ):
-        """
-        Make a request to the given URL.
-
-        This method will retry the request `retries` times if it fails. If an
-        `on_retry` function is provided, it will be called after each failure.
-
-        :param url: The URL to make the request to.
-        :param method: The HTTP method to use.
-        :param retries: The number of times to retry the request.
-        :param on_retry: A function to call after each failure.
-        :param kwargs: Any additional keyword arguments will be passed to
-            `ClientSession.request`.
-        :return: An HTTPResponse object containing the result of the request.
-        """
-        # get the parameters that were passed to the request
-        params = kwargs.get("params", kwargs.get("data", kwargs.get("json")))
-        # create a new HTTPResponse object to store the result of the request
-        resp = HTTPResponse()
-        try:
-            # use the client session to make the request
-            async with self.session.request(
-                method=method, url=url, **kwargs
-            ) as response:
-                # store the status code of the response
-                resp.status_code = response.status
-                # if the status code is less than 400, the request was successful
-                resp.ok = resp.status_code < 400
-                # log the result of the request
-                if resp.ok:
-                    logger.info(
-                        "[%i] %s(%s, %s))",
-                        resp.status_code,
-                        method,
-                        url,
-                        params,
-                    )
-                # store the headers of the response
-                resp.headers = dict(response.headers)
-                try:
-                    data = await response.json()
-                    resp.content = data or {}
-                except aiohttp.client_exceptions.ContentTypeError:
-                    # if parsing as json fails, store the response text
-                    text = await response.text()
-                    if text:
-                        resp.content["response"] = text
-                # if the request was not successful, log the error
-                if not resp.ok:
-                    logger.error(
-                        "[%i] %s(%s, %s)): %s",
-                        resp.status_code,
-                        method,
-                        url,
-                        params,
-                        resp.content,
-                    )
-        except Exception as e:
-            # if an exception occurs, log the error
-            logger.exception("%s(%s, %s)): %s %s", method, url, params, type(e), e)
-            # set the response status to False
-            resp.ok = False
-        # if the request was not successful and there are retries left, retry the request
-        if not resp.ok and retries > 0:
-            logger.warning("Retrying %s %s", method, url)
-            # call the on retry function if it was provided
-            if on_retry:
-                if asyncio.iscoroutinefunction(on_retry):
-                    await on_retry()
-                else:
-                    on_retry()
-            # recursively call the _request method with the updated number of retries
-            return await self._request(
-                url=url, method=method, retries=retries - 1, **kwargs
-            )
-        # return the response
-        return resp
-    
 class ShutdownHandler:
     def __init__(self, shutdown_on_exception: bool = False):
         """
