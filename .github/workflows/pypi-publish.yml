@@ -18,27 +18,25 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Check if this is a new version
-        id: version_check
-        uses: MathieuMoalic/action-python-package-new-version@v1.0.5
+      - name: Python Package New Version
+        uses: MathieuMoalic/action-python-package-new-version@v1.0.1
 
       - name: Set up Python
-        if: steps.version_check.outputs.NEW_VERSION == 'true'
+        if: env.PUBLISHING == 'true'
         uses: actions/setup-python@v4
         with:
           python-version: '3.x'
 
       - name: Install build dependencies
-        if: steps.version_check.outputs.NEW_VERSION == 'true'
+        if: env.PUBLISHING == 'true'
         run: |
           python -m pip install --upgrade pip
           pip install build
 
       - name: Build distributions
-        if: steps.version_check.outputs.NEW_VERSION == 'true'
+        if: env.PUBLISHING == 'true'
         run: python -m build
 
       - name: Publish to PyPI
-        if: steps.version_check.outputs.NEW_VERSION == 'true'
+        if: env.PUBLISHING == 'true'
         uses: pypa/gh-action-pypi-publish@release/v1
-
