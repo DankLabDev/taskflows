@@ -20,7 +20,7 @@ jobs:
 
       - name: Check if this is a new version
         id: version_check
-        uses: MathieuMoalic/action-python-package-new-version@v1.0.1
+        uses: MathieuMoalic/action-python-package-new-version@v1.0.5
 
       - name: Set up Python
         if: steps.version_check.outputs.NEW_VERSION == 'true'
