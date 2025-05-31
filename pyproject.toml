@@ -35,7 +35,7 @@ dependencies = [
 ]
 
 [tool.setuptools]
-# TODO don't install entire tests package
+# TODO don't install entire tests package.
 packages = ["taskflows", "tests"]
 
 [project.optional-dependencies]
