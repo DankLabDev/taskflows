@@ -172,6 +172,7 @@ class Service:
     working_directory: Optional[str | Path] = None
 
     def __post_init__(self):
+        self.kill_mode = None
         if self.venv is not None:
             if self.start_command:
                 self.start_command = self.venv.create_env_command(self.start_command)
@@ -291,6 +292,8 @@ class Service:
             f"KillSignal={self.kill_signal}",
             "TimeoutStopSec=120s",
         }
+        if self.kill_mode:
+            service.add(f"KillMode={self.kill_mode}")
         if (not self.start_command_blocking) and self.stop_schedule:
             service.add("RemainAfterExit=yes")
         if self.stop_command:
@@ -450,12 +453,15 @@ class DockerStartService(Service):
 
         super().__init__(
             name=name,
+            start_after="docker.service",
+            requires="docker.service",
             start_command=f"docker start -a {name}",
-            stop_command=f"docker stop {name}",
+            stop_command=f"docker stop -t 110 {name}",
             restart_command=f"docker restart {name}",
             start_command_blocking=True,
             **kwargs,
         )
+        self.kill_mode = "none"
 
     def create(self, defer_reload: bool = False):
         super().create(defer_reload=defer_reload)
