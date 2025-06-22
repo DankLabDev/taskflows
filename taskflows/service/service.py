@@ -480,6 +480,7 @@ class DockerRunService(Service):
         name = name or container.name
         logger.info("Using name '%s' for service and container", name)
         self.container.name = name
+        # TODO need venv command.
         super().__init__(
             name=name,
             start_command=f"_run_docker_service {name}",
