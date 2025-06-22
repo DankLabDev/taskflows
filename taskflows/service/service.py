@@ -438,7 +438,11 @@ class DockerStartService(Service):
         logger.info("Using name '%s' for service and container", name)
         if container.restart_policy not in ("no",None):
             # systemd needs to manage the restart policy.
-            kwargs["restart_policy"] = container.restart_policy
+            if container.restart_policy == "unless-stopped":
+                # not direct mapping.
+                kwargs["restart_policy"] = "always"
+            else:
+                kwargs["restart_policy"] = container.restart_policy
             container.restart_policy = "no"
         super().__init__(
             name=name,
