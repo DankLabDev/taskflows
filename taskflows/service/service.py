@@ -6,11 +6,11 @@ from datetime import datetime
 from functools import cache
 from pathlib import Path
 from pprint import pformat
-from typing import Callable, Dict, List, Literal, Optional, Sequence, Set, Union
+from typing import (Callable, Dict, List, Literal, Optional, Sequence, Set,
+                    Union)
 
 import cloudpickle
 import dbus
-
 from taskflows import _SYSTEMD_FILE_PREFIX, logger
 from taskflows.config import taskflows_data_dir
 
@@ -29,7 +29,7 @@ def extract_service_name(unit: str | Path) -> List[str]:
     return re.sub(f"^{_SYSTEMD_FILE_PREFIX}", "", Path(unit).stem)
 
 @dataclass
-class MaxRestarts:
+class RestartLimits:
     # period in seconds where restarts_per_period number of restarts is allowed.
     period_seconds: int
     # number of restarts allowed in specified period.
@@ -51,7 +51,7 @@ class RestartPolicy:
     ]
     # seconds to wait before attempting restart.
     restart_delay: Optional[int] = None
-    max_restarts: Optional[MaxRestarts] = None
+    max_restarts: Optional[RestartLimits] = None
 
     @property
     def unit_entries(self) -> Set[str]:
@@ -100,8 +100,6 @@ class Service:
     name: str
     # command to execute.
     start_command: str | Callable[[], None]
-    # whether the start command is blocking.
-    start_command_blocking: bool = True
     # command to execute to stop the service command.
     stop_command: Optional[str] = None
     # when the service should be started.
@@ -172,7 +170,6 @@ class Service:
     working_directory: Optional[str | Path] = None
 
     def __post_init__(self):
-        self.kill_mode = None
         if self.venv is not None:
             if self.start_command:
                 self.start_command = self.venv.create_env_command(self.start_command)
@@ -182,6 +179,7 @@ class Service:
                 self.restart_command = self.venv.create_env_command(
                     self.restart_command
                 )
+        self._set_unit_and_service_entries()
 
     @property
     def timer_files(self) -> List[str]:
@@ -275,27 +273,17 @@ class Service:
             ]
             self._write_systemd_file("timer", "\n".join(content), is_stop_timer)
 
-    def _write_service_units(self):
+    def _set_unit_and_service_entries(self):
         def join(args):
             if not isinstance(args, (list, tuple)):
                 args = [args]
-            return " ".join(
-                [
-                    v if isinstance(v, str) else f"{v.base_file_stem}.service"
-                    for v in args
-                ]
-            )
-
+            return " ".join(args)
         unit = set()
         service = {
             f"ExecStart={self.start_command}",
             f"KillSignal={self.kill_signal}",
             "TimeoutStopSec=120s",
         }
-        if self.kill_mode:
-            service.add(f"KillMode={self.kill_mode}")
-        if (not self.start_command_blocking) and self.stop_schedule:
-            service.add("RemainAfterExit=yes")
         if self.stop_command:
             service.add(f"ExecStop={self.stop_command}")
         if self.restart_command:
@@ -358,9 +346,13 @@ class Service:
         for rp in self.restart_policy:
             if isinstance(rp, str):
                 rp = RestartPolicy(policy=rp)
-                unit.update(rp.unit_entries)
-                service.update(rp.service_entries)
-        srv_file = self._write_service_file(unit=unit, service=service)
+            unit.update(rp.unit_entries)
+            service.update(rp.service_entries)
+        self.unit_entries = unit
+        self.service_entries = service
+
+    def _write_service_units(self):
+        srv_file = self._write_service_file(unit=self.unit_entries, service=self.service_entries)
         # TODO ExecCondition, ExecStartPre, ExecStartPost?
         if self.stop_schedule:
             service = [f"ExecStart=systemctl --user stop {os.path.basename(srv_file)}"]
@@ -424,13 +416,9 @@ class Service:
 
 
 class DockerStartService(Service):
-    """A service to start and stop a named/persisted Docker container.
+    """A service to start and stop a named/persisted Docker container."""
 
-    Note that service restart policy will only apply to the 'docker start' command,
-    so a separate restart policy should be applied to the container itself via Docker's restart policy feature.
-    """
-
-    def __init__(self, container: DockerContainer | str, **kwargs):
+    def __init__(self, container: DockerContainer, **kwargs):
         self.container = container
         # for key in ("requires", "start_after"):
         #    kwargs[key] = []
@@ -438,44 +426,39 @@ class DockerStartService(Service):
         # kwargs["start_after"].append("docker.service")
         # make sure container and service have the same name.
         name = kwargs.pop("name", None)
-        if isinstance(container, str):
-            # use name of user-created container for service.
-            logger.info(
-                "Using name of user-created container (%s) for service", container
-            )
-            name = container
+        if name is None:
+            name = container.name
         else:
-            if name is None:
-                name = container.name
-            else:
-                container.name = name
-            logger.info("Using name '%s' for service and container", name)
-
+            container.name = name
+        logger.info("Using name '%s' for service and container", name)
+        if container.restart_policy not in ("no",None):
+            # systemd needs to manage the restart policy.
+            kwargs["restart_policy"] = container.restart_policy
+            container.restart_policy = "no"
         super().__init__(
             name=name,
-            start_after="docker.service",
-            requires="docker.service",
+            #start_after="docker.service",
+            #requires="docker.service",
             start_command=f"docker start -a {name}",
-            stop_command=f"docker stop -t 110 {name}",
+            stop_command=f"docker stop {name}",
             restart_command=f"docker restart {name}",
-            start_command_blocking=True,
             **kwargs,
         )
-        self.kill_mode = "none"
+        # use same cgroup for container and service.
+        self.slice = f"{name}.slice"
+        self.service_entries.add(f"Slice={self.slice}")
+        self.service_entries.add("Delegate=yes")
+        self.service_entries.add("TasksMax=infinity")
 
     def create(self, defer_reload: bool = False):
         super().create(defer_reload=defer_reload)
-        if isinstance(self.container, DockerContainer):
-            self.container.create()
+        self.container.create(cgroup_parent=self.slice)
 
     def remove(self):
         """Remove this service."""
         _remove_service(
             service_files=self.service_files,
             timer_files=self.timer_files,
-            keep_containers=(
-                [self.container] if isinstance(self.container, str) else None
-            ),
         )
 
 
@@ -494,7 +477,6 @@ class DockerRunService(Service):
             start_command=f"_run_docker_service {name}",
             stop_command=f"docker stop {name}",
             restart_command=f"docker restart {name}",
-            start_command_blocking=True,
             **kwargs,
         )
 
@@ -749,8 +731,7 @@ def _disable_service(files: Sequence[str]):
 
 def _remove_service(
     service_files: Sequence[str],
-    timer_files: Sequence[str],
-    keep_containers: Sequence[str] = None,
+    timer_files: Sequence[str]
 ):
     def valid_file_paths(files):
         files = [Path(f) for f in files]
@@ -758,7 +739,6 @@ def _remove_service(
 
     service_files = valid_file_paths(service_files)
     timer_files = valid_file_paths(timer_files)
-    keep_containers = keep_containers or []
 
     files = service_files + timer_files
     _stop_service(files)
@@ -778,8 +758,7 @@ def _remove_service(
         if container_name:
             container_names.add(container_name.group(1))
     for cname in container_names:
-        if cname not in keep_containers:
-            delete_docker_container(cname)
+        delete_docker_container(cname)
     for srv in service_files:
         files.extend(taskflows_data_dir.glob(f"{extract_service_name(srv)}#*.pickle"))
     for file in files:

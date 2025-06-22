@@ -183,6 +183,8 @@ class DockerContainer:
     network_mode: Optional[
         Literal["bridge", "host", "none", "overlay", "ipvlan", "macvlan"]
     ] = None
+    # Restart the container when it exits?
+    restart_policy: Literal['no','always','unless-stopped','on-failure'] = 'no'
     init: Optional[bool] = None
     detach: Optional[bool] = None
     user: Optional[str] = None
@@ -197,6 +199,7 @@ class DockerContainer:
     volumes_from: Optional[List[str]] = None
     # The name of a volume driver/plugin.
     volume_driver: Optional[str] = None
+    # TODO remove this and put this at the service level?
     ulimits: Optional[Union[Ulimit, Sequence[Ulimit]]] = None
     # enable auto-removal of the container on daemon
     # side when the containeras process exits.
@@ -211,12 +214,6 @@ class DockerContainer:
     cap_add: Optional[List[str]] = None
     # Drop kernel capabilities.
     cap_drop: Optional[List[str]] = None
-    # Override the default parent cgroup.
-    cgroup_parent: Optional[str] = None
-    # Override the default cgroup namespace mode for the
-    # container. One of:
-    # -the container runs in its own private cgroup
-    cgroupns: Optional[str] = None
     # Number of usable CPUs (Windows only).
     cpu_count: Optional[int] = None
     # Usable percentage of the available CPUs
@@ -238,9 +235,6 @@ class DockerContainer:
     # Memory nodes (MEMs) in which to allow execution
     # (,). Only effective on NUMA systems.
     cpuset_mems: Optional[str] = None
-    # A list of cgroup rules to
-    # apply to the container.
-    device_cgroup_rules: Optional[List[str]] = None
     # Limit read rate (bytes per second) from a device
     # in the form of: [{“Path”: “device_path”, “Rate”: rate}]
     device_read_bps: Optional[List[Dict[str, Any]]] = None
@@ -269,7 +263,6 @@ class DockerContainer:
     domainname: Optional[Union[str, List[str]]] = None
     # The entrypoint for the container.
     entrypoint: Optional[Union[str, List[str]]] = None
-
     # Additional hostnames to resolve inside the
     # container, as a mapping of hostname to IP address.
     extra_hosts: Optional[Dict[str, str]] = None
@@ -300,8 +293,6 @@ class DockerContainer:
     # Containers declared in this dict will be linked to the new
     # container using the provided alias. Default:.
     links: Optional[Dict[str, str]] = None
-    # Logging driver: JSON, SYSLOG, JOURNALD, GELF, FLUENTD, NONE
-    log_driver: Optional[LogConfigTypesEnum] = None
     # LXC config.
     lxc_conf: Optional[dict] = None
     # MAC address to assign to the container.
@@ -360,8 +351,6 @@ class DockerContainer:
     # Mount the containeras root filesystem as read
     # only.
     read_only: Optional[bool] = None
-    # Restart the container when it exits?
-    restart_policy: Literal['no','always','unless-stopped','on-failure'] = 'no'
     # Runtime to use with this container.
     runtime: Optional[str] = None
     # A list of string values to
@@ -369,14 +358,6 @@ class DockerContainer:
     security_opt: Optional[List[str]] = None
     # Size of /dev/shm (e.g.).
     shm_size: Optional[Union[str, int]] = None
-    # Keepopen even if not attached.
-    stdin_open: Optional[bool] = None
-    # Return logs fromwhen.
-    # Default:.
-    stdout: Optional[bool] = None
-    # Return logs fromwhen.
-    # Default:.
-    stderr: Optional[bool] = None
     # The stop signal to use to stop the container
     # (e.g.).
     stop_signal: Optional[str] = None
@@ -414,13 +395,6 @@ class DockerContainer:
     version: Optional[str] = None
     # Path to the working directory.
     working_dir: Optional[str] = None
-
-    def __post_init__(self):
-        if isinstance(self.volumes, Volume):
-            self.volumes = [self.volumes]
-        if isinstance(self.ulimits, Ulimit):
-            self.ulimits = [self.ulimits]
-        self.restart_policy = {"Name": self.restart_policy}
 
     def get_name(self) -> str:
         if self.name is None:
@@ -493,10 +467,15 @@ class DockerContainer:
                 "labels": self.name,
             },
         )
+        # TODO journald everything.
         if cfg.pop("docker_log_fluentd", config.docker_log_fluentd):
             log_cfg.type = LogConfigTypesEnum.FLUENTD
             fb_cfg = FluentBitConfig()
             log_cfg.set_config_value("fluentd-address", f"{fb_cfg.host}:{fb_cfg.port}")
+        
+        restart_policy = cfg.get("restart_policy")
+        if isinstance(restart_policy, str):
+            cfg['restart_policy'] = {"Name": restart_policy}
         cfg["log_config"] = log_cfg
         logger.info("Using log driver: %s", log_cfg)
         env = cfg.get("environment", {})
@@ -507,18 +486,20 @@ class DockerContainer:
         cfg["name"] = self.name
         if self.command and " " in self.command:
             cfg["command"] = self.command.split()
-        if self.ulimits:
+        ulimits = [self.ulimits] if isinstance(self.ulimits, Ulimit) else self.ulimits
+        if ulimits:
             cfg["ulimits"] = [
                 docker.types.Ulimit(name=l.name, soft=l.soft, hard=l.hard)
-                for l in self.ulimits
+                for l in ulimits
             ]
-        if self.volumes:
+        volumes = [self.volumes] if isinstance(self.volumes, Volume) else self.volumes
+        if volumes:
             cfg["volumes"] = {
                 v.host_path: {
                     "bind": v.container_path,
                     "mode": "ro" if v.read_only else "rw",
                 }
-                for v in self.volumes
+                for v in volumes
             }
         if isinstance(self.image, DockerImage):
             cfg["image"] = self.image.tag
