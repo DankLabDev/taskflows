@@ -25,22 +25,12 @@ from taskflows import _SYSTEMD_FILE_PREFIX
 
 from .config import config
 from .db import engine, get_tasks_db
-from .service.service import (
-    Service,
-    _disable_service,
-    _enable_service,
-    _remove_service,
-    _restart_service,
-    _start_service,
-    _stop_service,
-    extract_service_name,
-    get_schedule_info,
-    get_unit_file_states,
-    get_unit_files,
-    get_units,
-    reload_unit_files,
-    systemd_manager,
-)
+from .service.service import (Service, _disable_service, _enable_service,
+                              _remove_service, _restart_service,
+                              _start_service, _stop_service,
+                              extract_service_name, get_schedule_info,
+                              get_unit_file_states, get_unit_files, get_units,
+                              reload_unit_files, systemd_manager)
 
 cli = Group("taskflows", chain=True)
 
@@ -460,14 +450,19 @@ def restart(match: str):
 
 @cli.command
 @click.argument("match", required=False)
-def enable(match: str):
-    """Enable currently disabled services(s).
+@click.option(
+    "--timers-only",
+    is_flag=True,
+    help="Only enable service timers.",
+)
+def enable(match: str, timers_only: bool):
+    """Enable currently disabled timers(s)/services(s).
     Equivalent to `systemctl --user enable --now my.timer`
 
     Args:
         match (str): Name or pattern of services(s) to enable.
     """
-    _enable_service(get_unit_files(match=match))
+    _enable_service(get_unit_files(match=match, unit_type="timer" if timers_only else None))
     click.echo(click.style("Done!", fg="green"))
 
 

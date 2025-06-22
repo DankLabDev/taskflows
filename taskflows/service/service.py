@@ -168,6 +168,8 @@ class Service:
     env: Optional[Dict[str, str]] = None
     # working directory for the service.
     working_directory: Optional[str | Path] = None
+    # enable the service to start automatically on boot.
+    enabled: bool = False
 
     def __post_init__(self):
         if self.venv is not None:
@@ -217,7 +219,7 @@ class Service:
                 setattr(self, attr, deserialize_and_call(cmd, self.name, attr))
         self._write_timer_units()
         self._write_service_units()
-        _enable_service(self.unit_files)
+        self.enable(timers_only=not self.enabled)
         # start timers now.
         _start_service(self.timer_files)
         if not defer_reload:
@@ -235,9 +237,12 @@ class Service:
         """Restart this service."""
         _restart_service(self.service_files)
 
-    def enable(self):
+    def enable(self, timers_only: bool):
         """Enable this service."""
-        _enable_service(self.unit_files)
+        if timers_only:
+            _enable_service(self.timer_files)
+        else:
+            _enable_service(self.unit_files)
 
     def disable(self):
         """Disable this service."""
