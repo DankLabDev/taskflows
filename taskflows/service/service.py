@@ -454,6 +454,9 @@ class DockerStartService(Service):
         self.service_entries.add(f"Slice={self.slice}")
         self.service_entries.add("Delegate=yes")
         self.service_entries.add("TasksMax=infinity")
+        # drop the duplicate log stream in journalctl
+        self.service_entries.add("StandardOutput=null")
+        self.service_entries.add("StandardError=null")
 
     def create(self, defer_reload: bool = False):
         super().create(defer_reload=defer_reload)
