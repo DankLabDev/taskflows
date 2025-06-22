@@ -1,26 +1,13 @@
 import asyncio
 import base64
 import inspect
-import re
-from typing import Callable, Dict, Sequence
+from typing import Callable
 
 import click
 import cloudpickle
 from taskflows import logger
 from taskflows.config import taskflows_data_dir
 
-
-def parse_str_kwargs(kwargs: Sequence[str]) -> Dict[str, float | str]:
-    """Parses string in the form 'key=value'"""
-    kwargs_dict = {}
-    for pair in kwargs:
-        if "=" not in pair:
-            raise click.BadParameter(f"Invalid key=value pair: {pair}")
-        key, value = pair.split("=", 1)
-        if re.match(r"(\d+(\.\d+)?)$", value):
-            value = float(value)
-        kwargs_dict[key] = value
-    return kwargs_dict
 
 @click.command()
 @click.argument("b64_pickle_func")

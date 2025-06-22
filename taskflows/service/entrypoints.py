@@ -1,11 +1,27 @@
 import asyncio
+import re
 import sys
 from functools import wraps
+from typing import Dict, Sequence
 
+import click
 from click import Group
 from dynamic_imports import import_module_attr
 from taskflows import logger
 from taskflows.common import get_shutdown_handler
+
+
+def parse_str_kwargs(kwargs: Sequence[str]) -> Dict[str, float | str]:
+    """Parses string in the form 'key=value'"""
+    kwargs_dict = {}
+    for pair in kwargs:
+        if "=" not in pair:
+            raise click.BadParameter(f"Invalid key=value pair: {pair}")
+        key, value = pair.split("=", 1)
+        if re.match(r"(\d+(\.\d+)?)$", value):
+            value = float(value)
+        kwargs_dict[key] = value
+    return kwargs_dict
 
 
 def async_entrypoint(blocking: bool = False, shutdown_on_exception: bool = True):
