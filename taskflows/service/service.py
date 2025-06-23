@@ -6,11 +6,11 @@ from datetime import datetime
 from functools import cache
 from pathlib import Path
 from pprint import pformat
-from typing import (Callable, Dict, List, Literal, Optional, Sequence, Set,
-                    Union)
+from typing import Callable, Dict, List, Literal, Optional, Sequence, Set, Union
 
 import cloudpickle
 import dbus
+
 from taskflows import _SYSTEMD_FILE_PREFIX, logger
 from taskflows.config import taskflows_data_dir
 
@@ -680,7 +680,7 @@ def _start_service(files: Sequence[str]):
     mgr = systemd_manager()
     for sf in files:
         sf = os.path.basename(sf)
-        if re.match(r"^stop-.*\.service$", sf):
+        if sf.startswith("stop-"):
             continue
         logger.info("Running: %s", sf)
         mgr.StartUnit(sf, "replace")
@@ -701,9 +701,11 @@ def _stop_service(files: Sequence[str]):
 
 
 def _restart_service(files: Sequence[str]):
+    units = [os.path.basename(f) for f in files]
+    # don't restart "stop" units
+    units = [u for u in units if u.startswith("taskflow-")]
     mgr = systemd_manager()
-    for sf in files:
-        sf = os.path.basename(sf)
+    for sf in units:
         logger.info("Restarting: %s", sf)
         try:
             mgr.RestartUnit(sf, "replace")
