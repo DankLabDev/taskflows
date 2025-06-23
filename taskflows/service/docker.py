@@ -2,23 +2,22 @@ import base64
 from dataclasses import asdict, dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import (Any, Callable, Dict, List, Literal, Optional, Sequence,
-                    Union)
+from typing import Any, Callable, Dict, List, Literal, Optional, Sequence, Union
 
 import cloudpickle
-from dotenv import dotenv_values
-from pydantic import BaseModel, PositiveInt
-from pydantic_settings import SettingsConfigDict
-from taskflows import logger
-from taskflows.config import config
-from xxhash import xxh32
-
 import docker
 from docker.errors import ImageNotFound
 from docker.models.containers import Container
 from docker.models.images import Image
 from docker.types import LogConfig
 from docker.types.containers import LogConfigTypesEnum
+from dotenv import dotenv_values
+from pydantic import BaseModel, PositiveInt
+from pydantic_settings import SettingsConfigDict
+from xxhash import xxh32
+
+from taskflows import logger
+from taskflows.config import config
 
 from .exec import deserialize_and_call
 
@@ -436,8 +435,21 @@ class DockerContainer:
         cfg = self._params()
         cfg.update(kwargs)
         logger.info("Creating Docker container %s: %s", self.name, cfg)
-        return get_docker_client().containers.create(**cfg)
-
+        client = get_docker_client()
+        try:
+            return client.containers.create(**cfg)
+        except docker.errors.ImageNotFound:
+            if isinstance(self.image, DockerImage):
+                raise
+            logger.info("Pulling Docker image %s", self.image)
+            image_and_tag = self.image.split(":")
+            if len(image_and_tag) == 1:
+                client.images.pull(image)
+            else:
+                image, tag = image_and_tag
+                client.images.pull(image, tag=tag)
+            return client.containers.create(**cfg)
+            
     def run(self):
         """Run container."""
         if self.command and not isinstance(self.command, str):
