@@ -449,18 +449,26 @@ class DockerStartService(Service):
             #start_after="docker.service",
             #requires="docker.service",
             start_command=f"docker start -a {name}",
-            stop_command=f"docker stop {name}",
+            stop_command=f"docker stop -t 30 {name}",
             restart_command=f"docker restart {name}",
             **kwargs,
         )
         # use same cgroup for container and service.
         self.slice = f"{name}.slice"
         self.service_entries.add(f"Slice={self.slice}")
+        # let docker handle the signal. TODO do this for anything that provides stop_command?
+        self.service_entries.add("KillMode=none")
+        self.service_entries.remove("KillSignal=SIGTERM")
+        #self.service_entries.add("SuccessExitStatus=143")
         self.service_entries.add("Delegate=yes")
         self.service_entries.add("TasksMax=infinity")
         # drop the duplicate log stream in journalctl
         self.service_entries.add("StandardOutput=null")
         self.service_entries.add("StandardError=null")
+        # blocks until it is fully stopped
+        self.service_entries.add(f"ExecStopPost=docker wait {name}")
+        #self.service_entries.add("RestartSec=5s")
+        #self.service_entries.add("StartLimitBurst=0")
 
     def create(self, defer_reload: bool = False):
         super().create(defer_reload=defer_reload)
