@@ -29,18 +29,11 @@ def extract_service_name(unit: str | Path) -> List[str]:
     return re.sub(f"^{_SYSTEMD_FILE_PREFIX}", "", Path(unit).stem)
 
 @dataclass
-class RestartLimits:
-    # period in seconds where restarts_per_period number of restarts is allowed.
-    period_seconds: int
-    # number of restarts allowed in specified period.
-    restarts_per_period: int
-    
-@dataclass
 class RestartPolicy:
     """Service restart policy."""
 
-    # conditions where the service should be restarted.
-    policy: Literal[
+    # condition where the service should be restarted.
+    condition: Literal[
         "always",
         "on-success",
         "on-failure",
@@ -49,25 +42,28 @@ class RestartPolicy:
         "on-watchdog",
         "no",
     ]
-    # seconds to wait before attempting restart.
-    restart_delay: Optional[int] = None
-    max_restarts: Optional[RestartLimits] = None
+    # waiting time before each retry (seconds)
+    delay: Optional[int] = None
+    # hard ceiling on how many *failed* restarts are allowed within `window` before the task is left in `FAILED` state
+    max_attempts: Optional[int] = None
+    # sliding time window used to decide whether an attempt counts as “failed”. If the task stays up for the full `window`, the counter resets.  
+    window: Optional[int] = None
 
     @property
     def unit_entries(self) -> Set[str]:
         entries = set()
+        # 0 allows unlimited attempts.
+        window = self.window or 0
+        entries.add(f"StartLimitIntervalSec={window}")
         if self.max_restarts:
-            entries.update({
-                f"StartLimitIntervalSec={self.max_restarts.period_seconds}",
-                f"StartLimitBurst={self.max_restarts.restarts_per_period}",
-            })
+            entries.add(f"StartLimitBurst={self.max_attempts}")
         return entries
 
     @property
     def service_entries(self) -> Set[str]:
         entries = {f"Restart={self.policy}"}
-        if self.restart_delay:
-            entries.add(f"RestartSec={self.restart_delay}")
+        if self.delay:
+            entries.add(f"RestartSec={self.delay}")
         return entries
 
 
@@ -113,7 +109,7 @@ class Service:
     # signal used to stop the service.
     kill_signal: str = "SIGTERM"
     description: Optional[str] = None
-    restart_policy: Optional[str | RestartPolicy | Sequence[RestartPolicy]] = 'no'
+    restart_policy: Optional[str | RestartPolicy] = 'no'
     hardware_constraints: Optional[
         HardwareConstraint | Sequence[HardwareConstraint]
     ] = None
@@ -335,22 +331,15 @@ class Service:
         if self.propagate_stop_from:
             unit.add(f"StopPropagatedFrom={join(self.propagate_stop_from)}")
         if self.hardware_constraints:
-            if isinstance(self.hardware_constraints, (list, tuple)):
-                for hc in self.hardware_constraints:
-                    unit.update(hc.unit_entries)
-            else:
-                unit.update(self.hardware_constraints.unit_entries)
+            hcs = self.hardware_constraints if isinstance(self.hardware_constraints, (list, tuple)) else [self.hardware_constraints]
+            for hc in hcs:
+                unit.update(hc.unit_entries)
         if self.system_load_constraints:
-            if isinstance(self.system_load_constraints, (list, tuple)):
-                for slc in self.system_load_constraints:
-                    unit.update(slc.unit_entries)
-            else:
-                unit.update(self.system_load_constraints.unit_entries)
-        if not isinstance(self.restart_policy, (list, tuple)):
-            self.restart_policy = [self.restart_policy]
-        for rp in self.restart_policy:
-            if isinstance(rp, str):
-                rp = RestartPolicy(policy=rp)
+            slcs = self.system_load_constraints if isinstance(self.system_load_constraints, (list, tuple)) else [self.system_load_constraints]
+            for slc in slcs:
+                unit.update(slc.unit_entries) 
+        if self.restart_policy:
+            rp = RestartPolicy(policy=self.restart_policy) if isinstance(self.restart_policy, str) else self.restart_policy
             unit.update(rp.unit_entries)
             service.update(rp.service_entries)
         self.unit_entries = unit
@@ -458,8 +447,11 @@ class DockerStartService(Service):
         self.service_entries.add(f"Slice={self.slice}")
         # let docker handle the signal. TODO do this for anything that provides stop_command?
         self.service_entries.add("KillMode=none")
+        # not relevant with KillMode=none
         self.service_entries.remove("KillSignal=SIGTERM")
-        #self.service_entries.add("SuccessExitStatus=143")
+        # SIGTERM from docker stop
+        self.service_entries.add("SuccessExitStatus=0 143")
+        self.service_entries.add("RestartForceExitStatus=255")
         self.service_entries.add("Delegate=yes")
         self.service_entries.add("TasksMax=infinity")
         # drop the duplicate log stream in journalctl
@@ -667,13 +659,12 @@ def get_units(
 def _make_unit_match_pattern(
     unit_type: Optional[Literal["service", "timer"]] = None, match: Optional[str] = None
 ) -> str:
-    pattern = match or ""
+    pattern = match or "*"
     if unit_type and not pattern.endswith(f".{unit_type}"):
         pattern += f".{unit_type}"
     if _SYSTEMD_FILE_PREFIX not in pattern:
-        pattern = f"*{_SYSTEMD_FILE_PREFIX}*{pattern}"
-    pattern += "*"
-    return re.sub(r"\*+", "*", pattern)
+        pattern = f"*{_SYSTEMD_FILE_PREFIX}{pattern}"
+    return re.sub(r"\*{2,}", "*", pattern)
 
 
 def _start_service(files: Sequence[str]):
