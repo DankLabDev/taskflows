@@ -25,12 +25,22 @@ from taskflows import _SYSTEMD_FILE_PREFIX
 
 from .config import config
 from .db import engine, get_tasks_db
-from .service.service import (Service, _disable_service, _enable_service,
-                              _remove_service, _restart_service,
-                              _start_service, _stop_service,
-                              extract_service_name, get_schedule_info,
-                              get_unit_file_states, get_unit_files, get_units,
-                              reload_unit_files, systemd_manager)
+from .service.service import (
+    Service,
+    _disable_service,
+    _enable_service,
+    _remove_service,
+    _restart_service,
+    _start_service,
+    _stop_service,
+    extract_service_name,
+    get_schedule_info,
+    get_unit_file_states,
+    get_unit_files,
+    get_units,
+    reload_unit_files,
+    systemd_manager,
+)
 
 cli = Group("taskflows", chain=True)
 
@@ -47,7 +57,17 @@ cli = Group("taskflows", chain=True)
     "-m", "--match", help="Only show history for this task name or task name pattern."
 )
 def history(limit: int, match: str = None):
-    """Print task run history to console display."""
+    """Print task run history to console display.
+    
+    This command retrieves and displays the most recent task runs from the database
+    in a formatted table. The output includes task names, start/end times, status,
+    and other execution metadata.
+    
+    Args:
+        limit (int): Number of most recent task runs to show. Defaults to 3.
+        match (str, optional): Only show history for task names matching this pattern.
+                              Uses SQL LIKE pattern matching (% wildcards). Defaults to None.
+    """
     
     # Import the task runs table from the database
     table = get_tasks_db().task_runs_table
@@ -106,7 +126,14 @@ def history(limit: int, match: str = None):
 @cli.command(name="list")
 @click.argument("match", required=False)
 def list_services(match):
-    """List services."""
+    """List services managed by Taskflows.
+    
+    This command displays all service names that match the provided pattern.
+    
+    Args:
+        match (str, optional): Name or glob pattern to filter services. 
+                              If not provided, all services are listed.
+    """
     # Get a list of all service files matching the provided pattern
     files = get_unit_files(match=match, unit_type="service")
     
@@ -141,7 +168,14 @@ def list_services(match):
 def status(match: str, running: bool):
     """Get status of service(s).
 
-    This command shows information about services managed by Taskflows.
+    This command shows comprehensive information about services managed by Taskflows.
+    The output includes systemd states, timing information, and scheduling details.
+
+    Args:
+        match (str, optional): Only show services matching this name or pattern.
+                              Uses glob pattern matching.
+        running (bool): If True, only show services that are currently running
+                       (active_state == "active").
 
     The output is a table with the following columns:
 
@@ -157,9 +191,8 @@ def status(match: str, running: bool):
         Next Start: The next time the service is scheduled to start, if applicable.
         Timers: The timers that trigger the service, if applicable.
 
-    The output is sorted by service name.
-
-    If the `--running` flag is provided, only services that are currently running are shown.
+    The output is sorted by service name using intelligent grouping.
+    Times are displayed in the configured timezone from config.display_timezone.
     """
     # Get all service files matching the provided pattern
     file_states = get_unit_file_states(unit_type="service", match=match)
@@ -327,7 +360,16 @@ def status(match: str, running: bool):
 @cli.command
 @click.argument("service_name")
 def logs(service_name: str):
-    """Show logs for a service."""
+    """Show logs for a service.
+    
+    This command displays the systemd journal logs for the specified service
+    using journalctl. It shows a helpful command for viewing more logs and
+    then follows the live log output.
+    
+    Args:
+        service_name (str): The name of the service to show logs for.
+                           The systemd prefix will be automatically added.
+    """
     # TODO check if arg has extension.
     click.echo(
         click.style(
@@ -404,87 +446,208 @@ def _create(
     include,
     exclude,
 ):
-    """Create services found in a Python file or package."""
+    """Create services found in a Python file or package.
+    
+    This is the CLI command wrapper for the create function. It searches for
+    Service classes in the specified Python module or package and creates
+    systemd service files for them.
+    
+    Args:
+        search_in (str): A directory path or module name to search for Service classes.
+        include (str, optional): Name or glob pattern of services that should be included.
+        exclude (str, optional): Name or glob pattern of services that should be excluded.
+    """
     create(search_in=search_in, include=include, exclude=exclude)
     click.echo(click.style("Done!", fg="green"))
 
 
 @cli.command
-@click.argument("match", required=False)
-def start(match: str):
-    """Start services(s).
+@click.argument("match", required=True)
+@click.option(
+    "--timers",
+    "-t",
+    is_flag=True,
+    help="Stop timers matching provided pattern.",
+)
+@click.option(
+    "--services",
+    "-s",
+    is_flag=True,
+    help="Stop services matching provided pattern.",
+)
+def start(match: str, timers: bool, services: bool):
+    """Start services(s) and/or timers.
+
+    This command starts systemd units (services and/or timers) that match the 
+    provided pattern. By default, both services and timers are started unless
+    specific flags are used to limit the unit type.
 
     Args:
-        match (str): Name or pattern of services(s) to start.
+        match (str): Name or pattern of units to start. Use "*" for all.
+        timers (bool): If True, only start timers matching the pattern.
+        services (bool): If True, only start services matching the pattern.
+        
+    Note:
+        If both --timers and --services flags are provided, or neither is provided,
+        both unit types will be started.
     """
-    if not match:
-        click.echo("Must provide glob pattern")
-        return
-    _start_service(get_unit_files(match=match))
+    if (services and timers) or (not services and not timers):
+        unit_type = None
+    elif services:
+        unit_type = "service"
+    elif timers:
+        unit_type = "timer"
+    _start_service(get_unit_files(match=match, unit_type=unit_type))
     click.echo(click.style("Done!", fg="green"))
 
 
 @cli.command
-@click.argument("match", required=False)
-def stop(match: str):
-    """Stop running service(s).
+@click.argument("match", required=True)
+@click.option(
+    "--timers",
+    "-t",
+    is_flag=True,
+    help="Stop timers matching provided pattern.",
+)
+@click.option(
+    "--services",
+    "-s",
+    is_flag=True,
+    help="Stop services matching provided pattern.",
+)
+def stop(match: str, timers: bool, services: bool):
+    """Stop running service(s) and/or timers.
+
+    This command stops systemd units (services and/or timers) that match the 
+    provided pattern. By default, both services and timers are stopped unless
+    specific flags are used to limit the unit type.
 
     Args:
-        match (str): Name or name pattern of service(s) to stop.
+        match (str): Name or name pattern of units to stop.
+        timers (bool): If True, only stop timers matching the pattern.
+        services (bool): If True, only stop services matching the pattern.
+        
+    Note:
+        If both --timers and --services flags are provided, or neither is provided,
+        both unit types will be stopped.
     """
-    _stop_service(get_unit_files(match=match))
+    if (services and timers) or (not services and not timers):
+        unit_type = None
+    elif services:
+        unit_type = "service"
+    elif timers:
+        unit_type = "timer"
+    _stop_service(get_unit_files(match=match, unit_type=unit_type))
     click.echo(click.style("Done!", fg="green"))
 
 
 @cli.command
-@click.argument("match", required=False)
+@click.argument("match", required=True)
 def restart(match: str):
     """Restart running service(s).
 
+    This command restarts systemd services that match the provided pattern.
+    Only services are restarted (not timers).
+
     Args:
         match (str): Name or name pattern of service(s) to restart.
+                    Uses glob pattern matching for service names.
     """
-    _restart_service(get_unit_files(match=match))
+    _restart_service(get_unit_files(match=match, unit_type="service"))
     click.echo(click.style("Done!", fg="green"))
 
 
 @cli.command
-@click.argument("match", required=False)
+@click.argument("match", required=True)
 @click.option(
-    "--timers-only",
+    "--timers",
+    "-t",
     is_flag=True,
-    help="Only enable service timers.",
+    help="Enable timers matching provided pattern.",
 )
-def enable(match: str, timers_only: bool):
+@click.option(
+    "--services",
+    "-s",
+    is_flag=True,
+    help="Enable services matching provided pattern.",
+)
+def enable(match: str, timers: bool, services: bool):
     """Enable currently disabled timers(s)/services(s).
-    Equivalent to `systemctl --user enable --now my.timer`
+    
+    This command enables systemd units (services and/or timers) that match the 
+    provided pattern. Equivalent to `systemctl --user enable --now my.timer`.
+    By default, both services and timers are enabled unless specific flags are used.
 
     Args:
-        match (str): Name or pattern of services(s) to enable.
+        match (str): Name or pattern of units to enable.
+        timers (bool): If True, only enable timers matching the pattern.
+        services (bool): If True, only enable services matching the pattern.
+        
+    Note:
+        If both --timers and --services flags are provided, or neither is provided,
+        both unit types will be enabled.
     """
-    _enable_service(get_unit_files(match=match, unit_type="timer" if timers_only else None))
+    if (services and timers) or (not services and not timers):
+        unit_type = None
+    elif services:
+        unit_type = "service"
+    elif timers:
+        unit_type = "timer"
+    _enable_service(get_unit_files(match=match, unit_type=unit_type))
     click.echo(click.style("Done!", fg="green"))
 
 
 @cli.command
-@click.argument("match", required=False)
-def disable(match: str):
-    """Disable services(s).
+@click.argument("match", required=True)
+@click.option(
+    "--timers",
+    "-t",
+    is_flag=True,
+    help="Disable timers matching provided pattern.",
+)
+@click.option(
+    "--services",
+    "-s",
+    is_flag=True,
+    help="Disable services matching provided pattern.",
+)
+def disable(match: str, timers: bool, services: bool):
+    """Disable services(s) and/or timers.
+
+    This command disables systemd units (services and/or timers) that match the 
+    provided pattern. By default, both services and timers are disabled unless
+    specific flags are used to limit the unit type.
 
     Args:
-        match (str): Name or pattern of services(s) to disable.
+        match (str): Name or pattern of units to disable.
+        timers (bool): If True, only disable timers matching the pattern.
+        services (bool): If True, only disable services matching the pattern.
+        
+    Note:
+        If both --timers and --services flags are provided, or neither is provided,
+        both unit types will be disabled.
     """
-    _disable_service(get_unit_files(match=match))
+    if (services and timers) or (not services and not timers):
+        unit_type = None
+    elif services:
+        unit_type = "service"
+    elif timers:
+        unit_type = "timer"
+    _disable_service(get_unit_files(match=match, unit_type=unit_type))
     click.echo(click.style("Done!", fg="green"))
 
 
 @cli.command
-@click.argument("match", required=False)
+@click.argument("match", required=True)
 def remove(match: str):
-    """Remove service(s).
+    """Remove service(s) and their associated timers.
+
+    This command removes both service files and associated timer files that match
+    the provided pattern. The systemd daemon is reloaded after removal.
 
     Args:
         match (str): Name or name pattern of service(s) to remove.
+                    Both service and timer files matching this pattern will be removed.
     """
     _remove_service(
         service_files=get_unit_files(unit_type="service", match=match),
@@ -494,9 +657,18 @@ def remove(match: str):
 
 
 @cli.command
-@click.argument("match", required=False)
+@click.argument("match", required=True)
 def show(match: str):
-    """Show services file contents."""
+    """Show service file contents.
+    
+    This command displays the content of systemd service and timer files that
+    match the provided pattern. The output is formatted with rich panels showing
+    each file's content with the filename as the title.
+
+    Args:
+        match (str): Name or glob pattern of services to show.
+                    Both service (.service) and timer (.timer) files are displayed.
+    """
     # Get a dict of the form {service_name: [file1, file2, ...]}
     # where each file is either a service file or a timer file
     # that belongs to the given service.
@@ -577,13 +749,22 @@ def sort_service_names(services: List[str]) -> List[str]:
     """
     Sort service names to display in a list.
 
-    This function takes a list of strings, where each string is a service name.
-    It returns a list of strings, sorted such that a service with a name that
-    starts with "stop-" will come after its corresponding service without the
-    "stop-" prefix.
+    This function takes a list of service names and sorts them intelligently,
+    grouping stop services with their corresponding main services. The sorting
+    uses text similarity to order related services together.
 
-    The sorting is done by finding the longest common substring between
-    consecutive service names, and ordering them based on that substring.
+    Args:
+        services (List[str]): A list of service names to sort.
+
+    Returns:
+        List[str]: A sorted list where stop services appear immediately after
+                  their corresponding main services, ordered by similarity.
+
+    The sorting algorithm:
+    1. Separates services into stop services (prefixed with "stop-{prefix}") and regular services
+    2. Normalizes service names by replacing hyphens and underscores with spaces
+    3. Orders services by text similarity using longest common subsequence
+    4. Places stop services immediately after their corresponding main services
     """
     # Define the prefix used for stopped services
     stop_prefix = f"stop-{_SYSTEMD_FILE_PREFIX}"
