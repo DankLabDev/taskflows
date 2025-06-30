@@ -7,7 +7,7 @@ from logging import Logger
 from typing import Any, Callable, List, Literal, Optional, Sequence
 
 import sqlalchemy as sa
-from alert_msgs import ContentType, Emoji, FontSize, MsgDst, Text, send_alert
+from dl_alerts import ContentType, Emoji, FontSize, MsgDst, Text, send_alert
 from func_timeout import func_timeout
 from func_timeout.exceptions import FunctionTimedOut
 from pydantic import BaseModel
