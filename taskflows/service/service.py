@@ -338,7 +338,7 @@ class Service:
             slcs = self.system_load_constraints if isinstance(self.system_load_constraints, (list, tuple)) else [self.system_load_constraints]
             for slc in slcs:
                 unit.update(slc.unit_entries) 
-        if self.restart_policy:
+        if self.restart_policy not in ("no",None):
             rp = RestartPolicy(condition=self.restart_policy) if isinstance(self.restart_policy, str) else self.restart_policy
             unit.update(rp.unit_entries)
             service.update(rp.service_entries)
