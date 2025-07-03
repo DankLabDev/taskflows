@@ -459,8 +459,6 @@ class DockerStartService(Service):
         self.service_entries.add("StandardError=null")
         # blocks until it is fully stopped
         self.service_entries.add(f"ExecStopPost=docker wait {name}")
-        #self.service_entries.add("RestartSec=5s")
-        #self.service_entries.add("StartLimitBurst=0")
 
     def create(self, defer_reload: bool = False):
         super().create(defer_reload=defer_reload)
