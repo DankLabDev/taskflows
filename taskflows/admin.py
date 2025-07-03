@@ -195,37 +195,45 @@ def status(match: str, running: bool):
     Times are displayed in the configured timezone from config.display_timezone.
     """
     # Get all service files matching the provided pattern
-    file_states = get_unit_file_states(unit_type="service", match=match)
+    srv_states = get_unit_file_states(unit_type="service", match=match)
     # If there are no matching files, print a message and exit
-    if not file_states:
+    if not srv_states:
         click.echo(click.style("No services found.", fg="yellow"))
         return
     manager = systemd_manager()
     units_meta = defaultdict(dict)
-    for file_path, enabled_status in file_states.items():
-        unit_file = os.path.basename(file_path)
-        unit_meta = units_meta[unit_file]
-        unit_meta["Enabled"] = enabled_status
+    for file_path, enabled_status in srv_states.items():
+        file_path = Path(file_path)
+        unit_meta = units_meta[file_path.stem]
+        unit_meta["Service\nEnabled"] = enabled_status
         # TODO not load?
-        manager.LoadUnit(unit_file)
+        manager.LoadUnit(file_path.name)
+    timer_states = get_unit_file_states(unit_type="timer", match=match)
+    for file_path, enabled_status in timer_states.items():
+        unit_file = Path(file_path)
+        unit_meta = units_meta[unit_file.stem]
+        unit_meta["Timer\nEnabled"] = enabled_status
+    #from pprint import pprint
+    #pprint(units_meta)
+    #return
     units = get_units(
         unit_type="service",
         match=match,
         states=None,
     )
     for unit in units:
-        units_meta[unit["unit_name"]].update(unit)
+        units_meta[Path(unit["unit_name"]).stem].update(unit)
     for unit_name, data in units_meta.items():
         data.update(get_schedule_info(unit_name))
-    for unit_name, data in units_meta.items():
         data["Service"] = extract_service_name(unit_name)
     units_meta = {
         k: v for k, v in units_meta.items() if v.get("load_state") != "not-found"
     }
+    # TODO add "Timers\nEnabled",
     columns = [
         "Service",
         "description",
-        "Enabled",
+        "Service\nEnabled",
         "load_state",
         "active_state",
         "sub_state",
@@ -234,9 +242,11 @@ def status(match: str, running: bool):
         "Last Finish",
         "Next Start",
         "Timers",
+        "Timer\nEnabled"
     ]
     column_value_colors = {
-        "Enabled": {"enabled": "green", "enabled-runtime": "yellow", "disabled": "red"},
+        "Service\nEnabled": {"enabled": "green", "enabled-runtime": "yellow", "disabled": "red"},
+        "Timer\nEnabled": {"enabled": "green", "enabled-runtime": "yellow", "disabled": "red"},
         "load_state": {
             # loaded: The unit file has been successfully read and parsed by systemd, and the unit is ready to be started.
             "loaded": "green",

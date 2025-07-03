@@ -55,13 +55,13 @@ class RestartPolicy:
         # 0 allows unlimited attempts.
         window = self.window or 0
         entries.add(f"StartLimitIntervalSec={window}")
-        if self.max_restarts:
+        if self.max_attempts:
             entries.add(f"StartLimitBurst={self.max_attempts}")
         return entries
 
     @property
     def service_entries(self) -> Set[str]:
-        entries = {f"Restart={self.policy}"}
+        entries = {f"Restart={self.condition}"}
         if self.delay:
             entries.add(f"RestartSec={self.delay}")
         return entries
@@ -338,8 +338,8 @@ class Service:
             slcs = self.system_load_constraints if isinstance(self.system_load_constraints, (list, tuple)) else [self.system_load_constraints]
             for slc in slcs:
                 unit.update(slc.unit_entries) 
-        if self.restart_policy:
-            rp = RestartPolicy(policy=self.restart_policy) if isinstance(self.restart_policy, str) else self.restart_policy
+        if self.restart_policy not in ("no",None):
+            rp = RestartPolicy(condition=self.restart_policy) if isinstance(self.restart_policy, str) else self.restart_policy
             unit.update(rp.unit_entries)
             service.update(rp.service_entries)
         self.unit_entries = unit
@@ -527,7 +527,7 @@ def escape_path(path) -> str:
 
 def get_schedule_info(unit: str):
     """Get the schedule information for a unit."""
-    unit_stem = unit.replace(".service", "").replace(".timer", "")
+    unit_stem = Path(unit).stem
     if not unit_stem.startswith(_SYSTEMD_FILE_PREFIX):
         unit_stem = f"{_SYSTEMD_FILE_PREFIX}{unit_stem}"
     manager = systemd_manager()
@@ -625,6 +625,7 @@ def get_unit_file_states(
     states = states or []
     pattern = _make_unit_match_pattern(unit_type=unit_type, match=match)
     files = list(systemd_manager().ListUnitFilesByPatterns(states, [pattern]))
+    logger.debug("Found %i units matching: %s", len(files), pattern)
     if not files:
         logger.error("No taskflow unit files found matching: %s", pattern)
     return {str(file): str(state) for file, state in files}
@@ -651,7 +652,9 @@ def get_units(
         "job_type",
         "job_path",
     ]
-    return [{k: str(v) for k, v in zip(fields, f)} for f in files]
+    units = [{k: str(v) for k, v in zip(fields, f)} for f in files]
+    logger.debug("Found %i units matching: %s", len(units), pattern)
+    return units
 
 
 def _make_unit_match_pattern(
@@ -660,6 +663,8 @@ def _make_unit_match_pattern(
     pattern = match or "*"
     if unit_type and not pattern.endswith(f".{unit_type}"):
         pattern += f".{unit_type}"
+    else:
+        pattern += ".*"
     if _SYSTEMD_FILE_PREFIX not in pattern:
         pattern = f"*{_SYSTEMD_FILE_PREFIX}{pattern}"
     return re.sub(r"\*{2,}", "*", pattern)
@@ -776,3 +781,4 @@ def _remove_service(
     for file in files:
         logger.info("Deleting %s", file)
         file.unlink()
+    reload_unit_files()

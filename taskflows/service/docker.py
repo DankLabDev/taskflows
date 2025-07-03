@@ -27,6 +27,21 @@ def get_docker_client(user_host: Optional[str] = None):
     base_url = f"ssh://{user_host}" if user_host else "unix:///var/run/docker.sock"
     return docker.DockerClient(base_url=base_url)
 
+def apply_container_action(
+    container_name: str, action: Literal["start", "restart", "stop"]
+):
+    logger.info("%sing %s container.", action, container_name)
+    client = get_docker_client()
+    try:
+        container = client.containers.get(container_name)
+    except docker.errors.NotFound:
+        logger.error(
+            "Container %s not found. Can not %s container", container_name, action
+        )
+        return
+    getattr(container, action)()
+
+
 
 @dataclass
 class ContainerLimits:
