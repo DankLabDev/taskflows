@@ -14,10 +14,10 @@ import dbus
 from taskflows import _SYSTEMD_FILE_PREFIX, logger
 from taskflows.config import taskflows_data_dir
 
-from .constraints import HardwareConstraint, SystemLoadConstraint
 from .docker import DockerContainer, delete_docker_container
 from .exec import deserialize_and_call
 from .schedule import Schedule
+from .startup_requirements import HardwareConstraint, SystemLoadConstraint
 
 ServiceT = Union[str, "Service"]
 ServicesT = Union[ServiceT, Sequence[ServiceT]]
@@ -91,9 +91,10 @@ class MambaEnv(Venv):
 @dataclass
 class Service:
     """A service to run a command on a specified schedule."""
-
     # name used to identify the service.
     name: str
+    # environment where commands should be executed.
+    environment: Venv | DockerContainer
     # command to execute.
     start_command: str | Callable[[], None]
     # command to execute to stop the service command.
@@ -104,18 +105,24 @@ class Service:
     stop_schedule: Optional[Schedule | Sequence[Schedule]] = None
     # command to execute when the service is restarted.
     restart_command: Optional[str] = None
-    # virtual environment where commands should be executed.
-    venv: Optional[Venv] = None
     # signal used to stop the service.
     kill_signal: str = "SIGTERM"
-    description: Optional[str] = None
     restart_policy: Optional[str | RestartPolicy] = 'no'
-    hardware_constraints: Optional[
-        HardwareConstraint | Sequence[HardwareConstraint]
-    ] = None
-    system_load_constraints: Optional[
-        SystemLoadConstraint | Sequence[SystemLoadConstraint]
-    ] = None
+    startup_requirements: Sequence[Union[HardwareConstraint, SystemLoadConstraint]] = None
+    # Specifies a timeout (in seconds) that starts running when the queued job is actually started.
+    # If limit is reached, the job will be cancelled, the unit however will not change state or even enter the "failed" mode.
+    timeout: Optional[int] = None
+    # path to a file with environment variables for the service.
+    # TODO LoadCredential, LoadCredentialEncrypted, SetCredentialEncrypted
+    # TODO forward to docker container.
+    env_file: Optional[str] = None
+    # environment variables for the service.
+    env: Optional[Dict[str, str]] = None
+    # working directory for the service.
+    working_directory: Optional[str | Path] = None
+    # enable the service to start automatically on boot.
+    enabled: bool = False
+    ## SERVICE RELATIONS ##
     # make sure this service is fully started before begining startup of these services.
     start_before: Optional[ServicesT] = None
     # make sure these services are fully started before begining startup of this service.
@@ -154,29 +161,18 @@ class Service:
     propagate_stop_from: Optional[ServicesT] = None
     # other units where starting the former will stop the latter and vice versa.
     conflicts: Optional[ServicesT] = None
-    # Specifies a timeout (in seconds) that starts running when the queued job is actually started.
-    # If limit is reached, the job will be cancelled, the unit however will not change state or even enter the "failed" mode.
-    timeout: Optional[int] = None
-    # path to a file with environment variables for the service.
-    # TODO LoadCredential, LoadCredentialEncrypted, SetCredentialEncrypted
-    env_file: Optional[str] = None
-    # environment variables for the service.
-    env: Optional[Dict[str, str]] = None
-    # working directory for the service.
-    working_directory: Optional[str | Path] = None
-    # enable the service to start automatically on boot.
-    enabled: bool = False
-
+    # description of this service.
+    description: Optional[str] = None
+    
     def __post_init__(self):
-        if self.venv is not None:
-            if self.start_command:
-                self.start_command = self.venv.create_env_command(self.start_command)
-            if self.stop_command:
-                self.stop_command = self.venv.create_env_command(self.stop_command)
-            if self.restart_command:
-                self.restart_command = self.venv.create_env_command(
-                    self.restart_command
-                )
+        for attr in ("start_command", "stop_command", "restart_command"):
+            cmd = getattr(self, attr)
+            if not isinstance(cmd, str):
+                # create command for deserializing and calling.
+                cmd = deserialize_and_call(cmd, self.name, attr)
+            if isinstance(self.environment, Venv):
+                cmd = self.environment.create_env_command(cmd)
+            setattr(self, attr, cmd)
         self._set_unit_and_service_entries()
 
     @property
@@ -209,10 +205,6 @@ class Service:
         logger.info("Creating service %s", self)
         # remove old version of this service if it exists.
         self.remove()
-        for attr in ("start_command", "stop_command", "restart_command"):
-            cmd = getattr(self, attr)
-            if not isinstance(cmd, str):
-                setattr(self, attr, deserialize_and_call(cmd, self.name, attr))
         self._write_timer_units()
         self._write_service_units()
         self.enable(timers_only=not self.enabled)
@@ -330,14 +322,10 @@ class Service:
             unit.add(f"PropagatesStopTo={join(self.propagate_stop_to)}")
         if self.propagate_stop_from:
             unit.add(f"StopPropagatedFrom={join(self.propagate_stop_from)}")
-        if self.hardware_constraints:
-            hcs = self.hardware_constraints if isinstance(self.hardware_constraints, (list, tuple)) else [self.hardware_constraints]
-            for hc in hcs:
-                unit.update(hc.unit_entries)
-        if self.system_load_constraints:
-            slcs = self.system_load_constraints if isinstance(self.system_load_constraints, (list, tuple)) else [self.system_load_constraints]
-            for slc in slcs:
-                unit.update(slc.unit_entries) 
+        if self.startup_requirements:
+            cons = self.startup_requirements if isinstance(self.startup_requirements, (list, tuple)) else [self.startup_requirements]
+            for c in cons:
+                unit.update(c.unit_entries)
         if self.restart_policy not in ("no",None):
             rp = RestartPolicy(condition=self.restart_policy) if isinstance(self.restart_policy, str) else self.restart_policy
             unit.update(rp.unit_entries)
@@ -452,6 +440,8 @@ class DockerStartService(Service):
         # SIGTERM from docker stop
         self.service_entries.add("SuccessExitStatus=0 143")
         self.service_entries.add("RestartForceExitStatus=255")
+        # make the container a child cgroup managed by Docker within the systemd-created slice.
+        # without this, Docker would not be allowed to create or manage cgroups inside the unit slice.
         self.service_entries.add("Delegate=yes")
         self.service_entries.add("TasksMax=infinity")
         # drop the duplicate log stream in journalctl
@@ -756,7 +746,6 @@ def _remove_service(
 
     service_files = valid_file_paths(service_files)
     timer_files = valid_file_paths(timer_files)
-
     files = service_files + timer_files
     _stop_service(files)
     _disable_service(files)
