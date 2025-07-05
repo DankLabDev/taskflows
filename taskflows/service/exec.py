@@ -5,6 +5,7 @@ from typing import Callable
 
 import click
 import cloudpickle
+
 from taskflows import logger
 from taskflows.config import taskflows_data_dir
 
@@ -19,12 +20,28 @@ def _run_function(b64_pickle_func: str):
         func()
 
 
-def deserialize_and_call(func: Callable, name: str, attr: str) -> str:
-    taskflows_data_dir.joinpath(f"{name}#_{attr}.pickle").write_bytes(
-        cloudpickle.dumps(func)
-    )
-    return f"_deserialize_and_call {name} {attr}"
+class PickledFunction:
+    def __init__(self, func: Callable, name: str, attr: str):
+        # Validate that the function takes no arguments
+        sig = inspect.signature(func)
+        params = [p for p in sig.parameters.values() if p.kind in (p.POSITIONAL_OR_KEYWORD, p.POSITIONAL_ONLY)]
+        if params:
+            param_names = [p.name for p in params]
+            raise ValueError(f"Function {func.__name__} must take no arguments, but has parameters: {param_names}")
+        self.name = name
+        self.attr = attr
+        self.func = func
 
+    def write(self):
+        file = taskflows_data_dir.joinpath(f"{self.name}#_{self.attr}.pickle")
+        logger.info("Writing pickled function: %s", file)
+        file.write_bytes(cloudpickle.dumps(self.func))
+
+    def __str__(self):
+        return f"_deserialize_and_call {self.name} {self.attr}"
+
+    def __repr__(self):
+        return str(self)
 
 @click.command()
 @click.argument("name")

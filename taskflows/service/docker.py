@@ -19,7 +19,7 @@ from xxhash import xxh32
 from taskflows import logger
 from taskflows.config import config
 
-from .exec import deserialize_and_call
+from .exec import PickledFunction
 
 
 @lru_cache
@@ -446,7 +446,7 @@ class DockerContainer:
         if isinstance(self.image, DockerImage):
             self.image.build()
         if self.command and not isinstance(self.command, str):
-            self.command = deserialize_and_call(self.command, self.name, "command")
+            self.command = PickledFunction(self.command, self.name, "command")
         cfg = self._params()
         cfg.update(kwargs)
         logger.info("Creating Docker container %s: %s", self.name, cfg)

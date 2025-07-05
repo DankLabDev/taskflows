@@ -14,10 +14,10 @@ import dbus
 from taskflows import _SYSTEMD_FILE_PREFIX, logger
 from taskflows.config import taskflows_data_dir
 
+from .constraints import HardwareConstraint, SystemLoadConstraint
 from .docker import DockerContainer, delete_docker_container
-from .exec import deserialize_and_call
+from .exec import PickledFunction
 from .schedule import Schedule
-from .startup_requirements import HardwareConstraint, SystemLoadConstraint
 
 ServiceT = Union[str, "Service"]
 ServicesT = Union[ServiceT, Sequence[ServiceT]]
@@ -165,15 +165,79 @@ class Service:
     description: Optional[str] = None
     
     def __post_init__(self):
+        self._pkl_funcs = []
         for attr in ("start_command", "stop_command", "restart_command"):
-            cmd = getattr(self, attr)
-            if not isinstance(cmd, str):
-                # create command for deserializing and calling.
-                cmd = deserialize_and_call(cmd, self.name, attr)
-            if isinstance(self.environment, Venv):
-                cmd = self.environment.create_env_command(cmd)
-            setattr(self, attr, cmd)
-        self._set_unit_and_service_entries()
+            if cmd := getattr(self, attr):
+                if not isinstance(cmd, str):
+                    # create command for deserializing and calling.
+                    cmd = PickledFunction(cmd, self.name, attr)
+                    self._pkl_funcs.append(cmd)
+                if isinstance(self.environment, Venv):
+                    cmd = self.environment.create_env_command(cmd)
+                setattr(self, attr, cmd)
+        def join(args):
+            if not isinstance(args, (list, tuple)):
+                args = [args]
+            return " ".join(args)
+        self.unit_entries = set()
+        self.service_entries = {
+            f"ExecStart={self.start_command}",
+            f"KillSignal={self.kill_signal}",
+            "TimeoutStopSec=120s",
+        }
+        if self.stop_command:
+            self.service_entries.add(f"ExecStop={self.stop_command}")
+        if self.restart_command:
+            self.service_entries.add(f"ExecReload={self.restart_command}")
+        # TODO ExecStopPost?
+        if self.working_directory:
+            self.service_entries.add(f"WorkingDirectory={self.working_directory}")
+        if self.timeout:
+            self.service_entries.add(f"RuntimeMaxSec={self.timeout}")
+        if self.env_file:
+            self.service_entries.add(f"EnvironmentFile={self.env_file}")
+        if self.env:
+            self.service_entries.add(
+                "\n".join([f'Environment="{k}={v}"' for k, v in self.env.items()])
+            )
+        if self.description:
+            self.unit_entries.add(f"Description={self.description}")
+        if self.start_after:
+            self.unit_entries.add(f"After={join(self.start_after)}")
+        if self.start_before:
+            self.unit_entries.add(f"Before={join(self.start_before)}")
+        if self.conflicts:
+            self.unit_entries.add(f"Conflicts={join(self.conflicts)}")
+        if self.on_success:
+            self.unit_entries.add(f"OnSuccess={join(self.on_success)}")
+        if self.on_failure:
+            self.unit_entries.add(f"OnFailure={join(self.on_failure)}")
+        if self.part_of:
+            self.unit_entries.add(f"PartOf={join(self.part_of)}")
+        if self.wants:
+            self.unit_entries.add(f"Wants={join(self.wants)}")
+        if self.upholds:
+            self.unit_entries.add(f"Upholds={join(self.upholds)}")
+        if self.requires:
+            self.unit_entries.add(f"Requires={join(self.requires)}")
+        if self.requisite:
+            self.unit_entries.add(f"Requisite={join(self.requisite)}")
+        if self.conflicts:
+            self.unit_entries.add(f"Conflicts={join(self.conflicts)}")
+        if self.binds_to:
+            self.unit_entries.add(f"BindsTo={join(self.binds_to)}")
+        if self.propagate_stop_to:
+            self.unit_entries.add(f"PropagatesStopTo={join(self.propagate_stop_to)}")
+        if self.propagate_stop_from:
+            self.unit_entries.add(f"StopPropagatedFrom={join(self.propagate_stop_from)}")
+        if self.startup_requirements:
+            cons = self.startup_requirements if isinstance(self.startup_requirements, (list, tuple)) else [self.startup_requirements]
+            for c in cons:
+                self.unit_entries.update(c.unit_entries)
+        if self.restart_policy not in ("no",None):
+            rp = RestartPolicy(condition=self.restart_policy) if isinstance(self.restart_policy, str) else self.restart_policy
+            self.unit_entries.update(rp.unit_entries)
+            self.service_entries.update(rp.service_entries)
 
     @property
     def timer_files(self) -> List[str]:
@@ -207,6 +271,8 @@ class Service:
         self.remove()
         self._write_timer_units()
         self._write_service_units()
+        for func in self._pkl_funcs:
+            func.write()
         self.enable(timers_only=not self.enabled)
         # start timers now.
         _start_service(self.timer_files)
@@ -265,73 +331,6 @@ class Service:
                 "WantedBy=timers.target",
             ]
             self._write_systemd_file("timer", "\n".join(content), is_stop_timer)
-
-    def _set_unit_and_service_entries(self):
-        def join(args):
-            if not isinstance(args, (list, tuple)):
-                args = [args]
-            return " ".join(args)
-        unit = set()
-        service = {
-            f"ExecStart={self.start_command}",
-            f"KillSignal={self.kill_signal}",
-            "TimeoutStopSec=120s",
-        }
-        if self.stop_command:
-            service.add(f"ExecStop={self.stop_command}")
-        if self.restart_command:
-            service.add(f"ExecReload={self.restart_command}")
-        # TODO ExecStopPost?
-        if self.working_directory:
-            service.add(f"WorkingDirectory={self.working_directory}")
-        if self.timeout:
-            service.add(f"RuntimeMaxSec={self.timeout}")
-        if self.env_file:
-            service.add(f"EnvironmentFile={self.env_file}")
-        if self.env:
-            service.add(
-                "\n".join([f'Environment="{k}={v}"' for k, v in self.env.items()])
-            )
-        if self.description:
-            unit.add(f"Description={self.description}")
-        if self.start_after:
-            unit.add(f"After={join(self.start_after)}")
-        if self.start_before:
-            unit.add(f"Before={join(self.start_before)}")
-        if self.conflicts:
-            unit.add(f"Conflicts={join(self.conflicts)}")
-        if self.on_success:
-            unit.add(f"OnSuccess={join(self.on_success)}")
-        if self.on_failure:
-            unit.add(f"OnFailure={join(self.on_failure)}")
-        if self.part_of:
-            unit.add(f"PartOf={join(self.part_of)}")
-        if self.wants:
-            unit.add(f"Wants={join(self.wants)}")
-        if self.upholds:
-            unit.add(f"Upholds={join(self.upholds)}")
-        if self.requires:
-            unit.add(f"Requires={join(self.requires)}")
-        if self.requisite:
-            unit.add(f"Requisite={join(self.requisite)}")
-        if self.conflicts:
-            unit.add(f"Conflicts={join(self.conflicts)}")
-        if self.binds_to:
-            unit.add(f"BindsTo={join(self.binds_to)}")
-        if self.propagate_stop_to:
-            unit.add(f"PropagatesStopTo={join(self.propagate_stop_to)}")
-        if self.propagate_stop_from:
-            unit.add(f"StopPropagatedFrom={join(self.propagate_stop_from)}")
-        if self.startup_requirements:
-            cons = self.startup_requirements if isinstance(self.startup_requirements, (list, tuple)) else [self.startup_requirements]
-            for c in cons:
-                unit.update(c.unit_entries)
-        if self.restart_policy not in ("no",None):
-            rp = RestartPolicy(condition=self.restart_policy) if isinstance(self.restart_policy, str) else self.restart_policy
-            unit.update(rp.unit_entries)
-            service.update(rp.service_entries)
-        self.unit_entries = unit
-        self.service_entries = service
 
     def _write_service_units(self):
         srv_file = self._write_service_file(unit=self.unit_entries, service=self.service_entries)
