@@ -1,6 +1,5 @@
 import asyncio
 import inspect
-import sys
 from datetime import datetime, timezone
 from functools import partial
 from logging import Logger
@@ -16,12 +15,13 @@ from taskflows import logger as default_logger
 
 from .db import engine, get_tasks_db
 
+TaskEvent = Literal["start", "error", "finish"]
 
 class Alerts(BaseModel):
     # where to send the alerts (e.g. email, slack, etc.)
-    send_to: Sequence[MsgDst]
+    send_to: Sequence[MsgDst] | MsgDst
     # when to send the alerts (start, error, finish)
-    send_on: Sequence[Literal["start", "error", "finish"]]
+    send_on: Sequence[TaskEvent] | TaskEvent = ["start", "error", "finish"]
 
     def model_post_init(self, __context) -> None:
         if not isinstance(self.send_to, (list, tuple)):
@@ -36,7 +36,7 @@ def task(
     retries: int = 0,
     timeout: Optional[int] = None,
     db_record: bool = False,
-    alerts: Optional[Sequence[Alerts]] = None,
+    alerts: Optional[Sequence[Alerts | MsgDst]] = None,
     logger: Optional[Logger] = None,
 ):
     """Decorator for task functions.
@@ -49,6 +49,10 @@ def task(
         alerts (Optional[Sequence[Alerts]], optional): Alert configurations / destinations.
     """
     logger = logger or default_logger
+    if alerts:
+        if not isinstance(alerts, (list, tuple)):
+            alerts = [alerts]
+        alerts = [a if isinstance(a, Alerts) else Alerts(send_to=a) for a in alerts]
 
     def task_decorator(func):
         # @functools.wraps(func)
@@ -96,8 +100,6 @@ class TaskLogger:
         self.required = required
         self.db_record = db_record
         self.alerts = alerts or []
-        if isinstance(self.alerts, Alerts):
-            self.alerts = [self.alerts]
         if db_record:
             self.db = get_tasks_db()
         self.errors = []
@@ -134,7 +136,7 @@ class TaskLogger:
             components = [
                 Text(
                     # the text to be displayed in the alert
-                    f"{Emoji.rocket} Starting: {self.name}",
+                    f"{Emoji.blue_circle} Starting: {self.name}",
                     # the font size of the text
                     font_size=FontSize.LARGE,
                     # the level of the alert
@@ -184,7 +186,7 @@ class TaskLogger:
             components = [
                 Text(
                     # the text to be displayed in the alert
-                    f"{Emoji.red_x} {subject}: {error}",
+                    f"{Emoji.red_circle} {subject}: {error}",
                     # the font size of the text
                     font_size=FontSize.LARGE,
                     # the level of the alert
@@ -244,7 +246,7 @@ class TaskLogger:
             components = [
                 Text(
                     # the text to be displayed in the alert
-                    f"{Emoji.green_check if success else Emoji.red_x} {self.name} {self.start_time} - {finish_time} ({finish_time-self.start_time})",
+                    f"{Emoji.green_circle if success else Emoji.red_circle} Finished: {self.name} | {self.start_time} - {finish_time} ({finish_time-self.start_time})",
                     # the font size of the text
                     font_size=FontSize.LARGE,
                     # the level of the alert
