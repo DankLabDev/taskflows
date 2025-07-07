@@ -16,5 +16,6 @@ from .service import (
     MambaEnv,
     RestartPolicy,
     Service,
+    ServiceRegistry,
     extract_service_name,
 )

@@ -28,6 +28,43 @@ systemd_dir = Path.home().joinpath(".config", "systemd", "user")
 def extract_service_name(unit: str | Path) -> List[str]:
     return re.sub(f"^{_SYSTEMD_FILE_PREFIX}", "", Path(unit).stem)
 
+class ServiceRegistry:
+    def __init__(self, *services):
+        self.services = {s.name: s for s in services}
+
+    def add(self, *services):
+        for s in services:
+            self.services[s.name] = s
+
+    @property
+    def names(self):
+        return list(self.services.keys())
+
+    def __getitem__(self, name):
+        return self.services[name]
+    
+    def __setitem__(self, name, value):
+        self.services[name] = value
+
+    def __contains__(self, name):
+        return name in self.services
+    
+    def __iter__(self):
+        return iter(self.services.values())
+    
+    def __len__(self):
+        return len(self.services)
+    
+    def __repr__(self):
+        return repr(self.services)
+    
+    def __str__(self):
+        return str(self.services)
+    
+    def __bool__(self):
+        return bool(self.services)
+    
+    
 @dataclass
 class RestartPolicy:
     """Service restart policy."""
