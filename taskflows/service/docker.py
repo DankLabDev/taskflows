@@ -12,12 +12,9 @@ from docker.models.images import Image
 from docker.types import LogConfig
 from docker.types.containers import LogConfigTypesEnum
 from dotenv import dotenv_values
-from pydantic import BaseModel, PositiveInt
-from pydantic_settings import SettingsConfigDict
 from xxhash import xxh32
 
 from taskflows import logger
-from taskflows.config import config
 
 from .exec import PickledFunction
 
@@ -40,8 +37,6 @@ def apply_container_action(
         )
         return
     getattr(container, action)()
-
-
 
 @dataclass
 class ContainerLimits:
@@ -175,18 +170,7 @@ class Ulimit:
         
     def __hash__(self):
         return hash((self.name, self.soft, self.hard))
-
-
-class FluentBitConfig(BaseModel):
-    host: str = "0.0.0.0"  # "localhost"
-    port: PositiveInt = 24224
-
-    model_config = SettingsConfigDict(env_prefix="taskflows_fluent_bit_")
-
-    def __hash__(self):
-        return hash((self.host, self.port))
-
-
+    
 @dataclass
 class DockerContainer:
     """Docker container."""
@@ -486,25 +470,16 @@ class DockerContainer:
 
     def _params(self) -> Dict[str, Any]:
         cfg = {k: v for k, v in asdict(self).items() if v is not None}
-        # default to JSON driver.
-        log_cfg = LogConfig(
-            type=LogConfigTypesEnum.JSON,
+        cfg["log_config"] = LogConfig(
+            type=LogConfigTypesEnum.JOURNALD,
             config={
                 "tag": "docker.{{.Name}}",
                 "labels": self.name,
             },
         )
-        # TODO journald everything.
-        if cfg.pop("docker_log_fluentd", config.docker_log_fluentd):
-            log_cfg.type = LogConfigTypesEnum.FLUENTD
-            fb_cfg = FluentBitConfig()
-            log_cfg.set_config_value("fluentd-address", f"{fb_cfg.host}:{fb_cfg.port}")
-        
         restart_policy = cfg.get("restart_policy")
         if isinstance(restart_policy, str):
             cfg['restart_policy'] = {"Name": restart_policy}
-        cfg["log_config"] = log_cfg
-        logger.info("Using log driver: %s", log_cfg)
         env = cfg.get("environment", {})
         if env_file := cfg.get("env_file"):
             env.update(dotenv_values(env_file))
@@ -531,7 +506,6 @@ class DockerContainer:
         if isinstance(self.image, DockerImage):
             cfg["image"] = self.image.tag
         return cfg
-
 
 def delete_docker_container(container_name: str, force: bool = True) -> bool:
     """Remove container.
