@@ -1,4 +1,3 @@
-import os
 import re
 import subprocess
 from collections import defaultdict
@@ -24,6 +23,7 @@ from textdistance import lcsseq
 from taskflows import _SYSTEMD_FILE_PREFIX
 
 from .config import config
+from .dashboard import Dashboard
 from .db import engine, get_tasks_db
 from .service.service import (
     Service,
@@ -395,15 +395,18 @@ def create(
     search_in: str, include: Optional[str] = None, exclude: Optional[str] = None
 ) -> None:
     """
-    Create taskflow services from a given source.
+    Create taskflow services and dashboards from a given source.
 
     Args:
-        search_in (str): A directory path or module name to search for taskflow services.
-        include (str, optional): A glob pattern of service names to include. Defaults to None.
-        exclude (str, optional): A glob pattern of service names to exclude. Defaults to None.
+        search_in (str): A directory path or module name to search for taskflow services and dashboards.
+        include (str, optional): A glob pattern of service/dashboard names to include. Defaults to None.
+        exclude (str, optional): A glob pattern of service/dashboard names to exclude. Defaults to None.
     """
     # search for all Services in the given search_in path.
     services = class_inst(class_type=Service, search_in=search_in)
+
+    # search for all Dashboards in the given search_in path.
+    dashboards = class_inst(class_type=Dashboard, search_in=search_in)
 
     # if include is given, filter the services to only include those that match the pattern.
     if include:
@@ -411,6 +414,11 @@ def create(
             s  # type: ignore
             for s in services
             if fnmatchcase(name=s.name, pat=include)  # type: ignore
+        ]
+        dashboards = [
+            d  # type: ignore
+            for d in dashboards
+            if fnmatchcase(name=d.title, pat=include)  # type: ignore
         ]
 
     # if exclude is given, filter the services to exclude those that match the pattern.
@@ -420,11 +428,16 @@ def create(
             for s in services
             if not fnmatchcase(name=s.name, pat=exclude)  # type: ignore
         ]
+        dashboards = [
+            d  # type: ignore
+            for d in dashboards
+            if not fnmatchcase(name=d.title, pat=exclude)  # type: ignore
+        ]
 
-    # print the number of services found after filtering.
+    # print the number of services and dashboards found after filtering.
     click.echo(
         click.style(
-            f"Creating {len(services)} service(s) from {search_in}",
+            f"Creating {len(services)} service(s) and {len(dashboards)} dashboard(s) from {search_in}",
             fg="green",
             bold=True,
         )
@@ -433,6 +446,10 @@ def create(
     # create each service. defer_reload=True means that the service will be created but not started.
     for srv in services:
         srv.create(defer_reload=True)
+
+    # create each dashboard.
+    for dashboard in dashboards:
+        dashboard.create()
 
     # reload the systemd daemon to pick up the new service files.
     reload_unit_files()
@@ -443,29 +460,29 @@ def create(
     "-i",
     "--include",
     type=str,
-    help="Name or glob pattern of services that should be included.",
+    help="Name or glob pattern of services/dashboards that should be included.",
 )
 @click.option(
     "-e",
     "--exclude",
     type=str,
-    help="Name or glob pattern of services that should be excluded.",
+    help="Name or glob pattern of services/dashboards that should be excluded.",
 )
 def _create(
     search_in,
     include,
     exclude,
 ):
-    """Create services found in a Python file or package.
+    """Create services and dashboards found in a Python file or package.
     
     This is the CLI command wrapper for the create function. It searches for
-    Service classes in the specified Python module or package and creates
-    systemd service files for them.
+    Service and Dashboard classes in the specified Python module or package and creates
+    systemd service files and Grafana dashboards for them.
     
     Args:
-        search_in (str): A directory path or module name to search for Service classes.
-        include (str, optional): Name or glob pattern of services that should be included.
-        exclude (str, optional): Name or glob pattern of services that should be excluded.
+        search_in (str): A directory path or module name to search for Service and Dashboard classes.
+        include (str, optional): Name or glob pattern of services/dashboards that should be included.
+        exclude (str, optional): Name or glob pattern of services/dashboards that should be excluded.
     """
     create(search_in=search_in, include=include, exclude=exclude)
     click.echo(click.style("Done!", fg="green"))
