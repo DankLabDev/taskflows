@@ -34,7 +34,7 @@ def task(
     name: Optional[str] = None,
     required: bool = False,
     retries: int = 0,
-    timeout: Optional[int] = None,
+    timeout: Optional[float] = None,
     db_record: bool = False,
     alerts: Optional[Sequence[Alerts | MsgDst]] = None,
     logger: Optional[Logger] = None,
@@ -201,7 +201,7 @@ class TaskLogger:
         success: bool,
         return_value: Any = None,
         retries: int = 0,
-    ) -> datetime:
+    ):
         """
         Handles actions to be performed when a task finishes execution.
 
@@ -304,6 +304,7 @@ class TaskLogger:
                     f"{len(self.errors)} errors executing task {self.name}: {self.errors}"
                 )
             raise type(self.errors[0])(str(self.errors[0]))
+        
 
     def _event_alerts(self, event: Literal["start", "error", "finish"]) -> List[MsgDst]:
         """
@@ -327,7 +328,7 @@ def _task_wrapper(
     *,
     func: Callable,
     retries: int,
-    timeout: float,
+    timeout: Optional[float],
     task_logger: TaskLogger,
     logger: Logger,
     **kwargs,
