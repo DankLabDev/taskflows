@@ -294,6 +294,7 @@ class Service:
             service.add(f"WorkingDirectory={self.working_directory}")
         if self.timeout:
             service.add(f"RuntimeMaxSec={self.timeout}")
+        # TODO forward to docker container.
         if self.env_file:
             service.add(f"EnvironmentFile={self.env_file}")
         if self.env:
@@ -451,7 +452,8 @@ class DockerStartService(Service):
         self.service_entries.remove("KillSignal=SIGTERM")
         # SIGTERM from docker stop
         self.service_entries.add("SuccessExitStatus=0 143")
-        self.service_entries.add("RestartForceExitStatus=255")
+        # SIGKILL and docker error code.
+        self.service_entries.add("RestartForceExitStatus=137 255")
         self.service_entries.add("Delegate=yes")
         self.service_entries.add("TasksMax=infinity")
         # drop the duplicate log stream in journalctl

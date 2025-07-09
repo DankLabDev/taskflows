@@ -8,3 +8,4 @@ from dl_alerts import EmailAddrs, SlackChannel
 
 from .common import ShutdownHandler, get_shutdown_handler
 from .tasks import Alerts, task
+from .service import async_entrypoint

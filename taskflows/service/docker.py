@@ -506,7 +506,7 @@ class DockerContainer:
         cfg["log_config"] = log_cfg
         logger.info("Using log driver: %s", log_cfg)
         env = cfg.get("environment", {})
-        if env_file := cfg.get("env_file"):
+        if env_file := cfg.pop("env_file", None):
             env.update(dotenv_values(env_file))
         if env:
             cfg["environment"] = env
