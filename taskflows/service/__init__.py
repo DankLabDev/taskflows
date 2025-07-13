@@ -19,3 +19,4 @@ from .service import (
     ServiceRegistry,
     extract_service_name,
 )
+from .dashboard import Dashboard

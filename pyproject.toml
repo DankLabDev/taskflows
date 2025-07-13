@@ -30,7 +30,8 @@ dependencies = [
     "aiohttp",
     "xxhash",
     "slack-bolt>=1.16.0",
-    "slack-sdk>=3.19.0"
+    "slack-sdk>=3.19.0",
+    "grafanalib"
 ]
 
 [project.optional-dependencies]

@@ -30,39 +30,43 @@ def extract_service_name(unit: str | Path) -> List[str]:
 
 class ServiceRegistry:
     def __init__(self, *services):
-        self.services = {s.name: s for s in services}
+        self._services = {s.name: s for s in services}
 
     def add(self, *services):
         for s in services:
-            self.services[s.name] = s
+            self._services[s.name] = s
 
     @property
     def names(self):
-        return list(self.services.keys())
+        return list(self._services.keys())
+    
+    @property
+    def services(self):
+        return list(self._services.values())
 
     def __getitem__(self, name):
-        return self.services[name]
+        return self._services[name]
     
     def __setitem__(self, name, value):
-        self.services[name] = value
+        self._services[name] = value
 
     def __contains__(self, name):
-        return name in self.services
+        return name in self._services
     
     def __iter__(self):
-        return iter(self.services.values())
+        return iter(self._services.values())
     
     def __len__(self):
-        return len(self.services)
+        return len(self._services)
     
     def __repr__(self):
-        return repr(self.services)
+        return repr(self._services)
     
     def __str__(self):
-        return str(self.services)
+        return str(self._services)
     
     def __bool__(self):
-        return bool(self.services)
+        return bool(self._services)
     
     
 @dataclass
