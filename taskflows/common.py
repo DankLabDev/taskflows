@@ -150,7 +150,7 @@ class ShutdownHandler:
         Args:
             exit_code (int): The exit code to use when terminating the program.
         """
-        logger.info("Shutting down.")
+        logger.info("Shutting down. Exit code: %s", exit_code)
         # Execute all registered shutdown callbacks
         for cb in self.callbacks:
             logger.info("Calling shutdown callback: %s", cb)
